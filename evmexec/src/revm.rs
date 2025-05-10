@@ -1,5 +1,4 @@
 use revm::{
-    context::result::ExecutionResult,
     database::{CacheDB, EmptyDB},
     primitives::{Address, Bytes, TxKind, U256},
     state::AccountInfo,
@@ -12,9 +11,11 @@ use revm::{
 };
 
 use crate::genesis::Genesis;
-use crate::evm::EvmInput;
+use crate::evm::{EvmInput, ExecutionResult, State};
+use crate::evmtrace::{ContextParser, InstructionContext};
+use crate::ethereum_newtypes::Address as OldEvmAddress;
 use crate::Error;
-use std::io::Write;
+use std::io::{Write, BufRead};
 
 #[derive(Debug, Clone, Copy)]
 struct FlushWriter {
@@ -73,6 +74,7 @@ impl Revm {
     pub fn execute(self, input: EvmInput) -> Result<RevmResult, Error> {
         let input_clone = input.clone();
         let revm_input = Revm::evm_to_revm_input(input);
+        let receiver = input_clone.receiver.clone();
         // Setup the EVM from the stored CacheDB and modify the transaction to include the input data
         let evm = Context::mainnet()
             .with_db(self.db.clone())
@@ -95,10 +97,17 @@ impl Revm {
         // Execute the transaction and commit the changes back to the CacheDB
         let result = evm.replay_commit().unwrap();
         let trace = writer.into_vec();
+
+        // Parse the trace into a Vec<InstructionContext>
+        let instructions = Revm::parse_trace(trace, receiver);
+
         Ok(RevmResult {
+            genesis: self.genesis,
             input: input_clone,
-            result: result,
-            trace: Box::new(trace),
+            result: ExecutionResult {
+                trace: instructions,
+                new_state: State::default(),
+            },
         })
     }
 
@@ -144,10 +153,40 @@ impl Revm {
 
         self
     }
+
+    pub fn parse_trace(trace: Vec<u8>, receiver: OldEvmAddress) -> Vec<InstructionContext> {
+        let mut buf = String::new();
+        let mut instructions = Vec::new();
+        let mut parser = ContextParser::new(receiver);
+        let mut reader = std::io::Cursor::new(trace);
+
+        while let Ok(d) = reader.read_line(&mut buf) {
+            // end of stream
+            if d == 0 {
+                break;
+            }
+            if buf.contains("Fatal") {
+                panic!("Could not fetch evm output: {}", buf);
+            }
+
+            // Attempts to detect the end of the trace by looking for the "root" keyword to indicate the start of the account object
+            // Is this fragile? Yes, but until we switch over to revm this will work
+            if buf.contains("root") {
+                break;
+            } else if let Some(ins) = parser.parse_trace_line(&buf) {
+                instructions.push(ins);
+            }
+
+            // clear buffer for reuse
+            buf.clear();
+        }
+
+        instructions
+    }
 }
 
 pub struct RevmResult {
+    pub genesis: Genesis,
     pub input: EvmInput,
     pub result: ExecutionResult,
-    pub trace: Box<Vec<u8>>,
 }
