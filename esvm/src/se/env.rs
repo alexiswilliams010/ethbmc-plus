@@ -1,11 +1,9 @@
 use std::collections::{HashMap, VecDeque};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use evmexec::genesis;
 use hexdecode;
 use lazy_static::lazy_static;
-use parity_connector::{BlockSelector, ParityConnector};
 use parking_lot::Mutex;
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng};
@@ -24,8 +22,7 @@ use crate::se::{
     expr::{
         bval::*,
         symbolic_memory::{self, word_write, MVal, MemoryType, SymbolicMemory},
-    },
-    symbolic_analysis::CONFIG,
+    }
 };
 use crate::PrecompiledContracts;
 
@@ -125,42 +122,6 @@ fn parse_yaml_value(val: &Yaml) -> BVal {
 }
 
 impl SeEnviroment {
-    pub fn from_chain(addr: &str) -> Option<Self> {
-        if CONFIG.read().unwrap().parity.is_none() {
-            return None;
-        }
-        let mut env = Env::from_chain();
-        let mut memory = symbolic_memory::new_memory();
-
-        // create env
-        let attacker = env.new_attacker_account(&mut memory);
-        let _hijack = env.new_hijack_account(&mut memory);
-
-        let addr_vec = hexdecode::decode(addr.as_bytes()).unwrap();
-        let account_addr = const_vec(addr_vec.as_slice());
-        let victim = env.try_load_account_from_chain(&mut memory, &account_addr)?;
-
-        {
-            let vic = env.get_account_mut(&victim);
-            if vic.code.is_none() {
-                return None;
-            }
-            if FVal::as_revm_u256(&vic.balance).unwrap() == U256::ZERO {
-                warn!("Account has zero balance on chain, using 10 Ether as substitute for detecting attacks.");
-                vic.balance = const_usize(10_000_000_000_000_000_000);
-                vic.initial_balance = Some(U256::from(10_000_000_000_000_000_000u64));
-            }
-        }
-        let memory = Arc::new(memory);
-
-        Some(SeEnviroment {
-            env,
-            from: attacker,
-            to: victim,
-            memory,
-        })
-    }
-
     pub fn from_yaml(yaml: &Yaml) -> Self {
         let mut env = Env::new();
         let mut memory = symbolic_memory::new_memory();
@@ -469,123 +430,6 @@ impl Env {
     pub fn latest_block_mut(&mut self) -> &mut Block {
         let len = self.blocks.len() - 1;
         &mut self.blocks[len]
-    }
-
-    fn add_contract(&mut self, contract: PrecompiledContracts) {
-        if let Some(ref mut vec) = self.precompiled_contracts {
-            vec.push(contract);
-        } else {
-            self.precompiled_contracts = Some(vec![contract]);
-        }
-    }
-
-    pub fn try_load_account_from_chain(
-        &mut self,
-        memory: &mut SymbolicMemory,
-        addr: &BVal,
-    ) -> Option<AccountId> {
-        if CONFIG.read().unwrap().parity.is_none() {
-            debug!("Could not dynamically load account from chain, parity client missing!");
-            return None;
-        }
-
-        let addr_c = FVal::as_bigint(addr)?;
-
-        // precompiled contracts not supported atm and uninnitialized storage filter
-        if addr_c.is_zero() {
-            return None;
-        } else if addr_c == 0x1.into() {
-            self.add_contract(PrecompiledContracts::EcdsaRecover);
-            return None;
-        } else if addr_c == 0x2.into() {
-            self.add_contract(PrecompiledContracts::Sha256);
-            return None;
-        } else if addr_c == 0x3.into() {
-            self.add_contract(PrecompiledContracts::Ripemd160);
-            return None;
-        } else if addr_c == 0x4.into() {
-            self.add_contract(PrecompiledContracts::Identity);
-            return None;
-        } else if addr_c == 0x5.into() {
-            self.add_contract(PrecompiledContracts::ModularExponentiation);
-            return None;
-        } else if addr_c == 0x6.into() {
-            self.add_contract(PrecompiledContracts::EcAddition);
-            return None;
-        } else if addr_c == 0x7.into() {
-            self.add_contract(PrecompiledContracts::EcScalarMultiplikation);
-            return None;
-        } else if addr_c == 0x8.into() {
-            self.add_contract(PrecompiledContracts::EcPairingEquation);
-            return None;
-        }
-        // check if potential address
-        if addr_c.bits() > 160 {
-            debug!("Non valid address supplied to dynamic loader");
-            return None;
-        }
-
-        let (mut client, block) = create_parity_client();
-
-        // fetch code
-        let code = client.code(Address::from_str(&addr_c.to_string()).unwrap(), block);
-
-        // fetch code
-        let chain_balance = client.balance(Address::from_str(&addr_c.to_string()).unwrap(), block);
-        // let account_balance = chain_balance;
-        let account_addr = Arc::clone(addr);
-
-        debug!(
-            "Dynamically loaded code for account {:?}: {:x?}",
-            account_addr, code
-        );
-
-        let code = if code.is_empty() { None } else { Some(code) };
-
-        let id = self.new_account(
-            memory,
-            &fresh_var_name("loaded_account"),
-            &account_addr,
-            code,
-            &const_usize(0),
-        );
-
-        self.get_account_mut(&id).initial_balance = Some(chain_balance.into());
-
-        self.try_load_storage_for_account(memory, &id);
-        if let Some(ref mut vec) = self.loaded_accounts {
-            vec.push(id);
-        } else {
-            self.loaded_accounts = Some(vec![id]);
-        }
-
-        Some(id)
-    }
-
-    fn try_load_storage_for_account(&mut self, memory: &mut SymbolicMemory, id: &AccountId) {
-        let (mut client, block) = create_parity_client();
-
-        let acc = self.get_account_mut(id);
-        let stor = if let Some(s) = client.storage(Address::from_str(&FVal::as_bigint(&acc.addr).unwrap().to_string()).unwrap(), block) {
-            s
-        } else {
-            warn!(
-                "Could not load storage for account: {:?}, using 0 initialized storage",
-                acc.addr
-            );
-            return;
-        };
-        let mut initial_storage: Vec<(U256, U256)> = vec![];
-        for (addr, val) in stor.into_iter() {
-            // acc.storage = word_write(memory, acc.storage, &addr, &val);
-            initial_storage.push((addr, val));
-        }
-        acc.initial_storage = Some(initial_storage);
-        debug!(
-            "Loaded Storage for account {:?}: {}",
-            acc.addr,
-            symbolic_memory::pretty_print(memory, acc.storage)
-        );
     }
 
     pub fn get_memories(&self) -> Vec<MVal> {
@@ -1046,15 +890,6 @@ impl Account {
     fn get_standard_constraints(&self) -> Vec<BVal> {
         vec![]
     }
-}
-
-fn create_parity_client() -> (ParityConnector, BlockSelector) {
-    let handle = CONFIG.read().unwrap();
-    let parity = handle
-        .parity
-        .as_ref()
-        .expect("Could not create parity client");
-    (ParityConnector::new(&parity.0, parity.1), parity.2)
 }
 
 impl Into<genesis::Genesis> for Env {

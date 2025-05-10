@@ -15,7 +15,6 @@ time = "0.1"
 chrono = "0.4.6"
 petgraph = "0.4.13"
 evmexec = { path = "../evmexec", features = ["verbose"] }
-parity_connector = { path = "../parity_connector" }
 subprocess = "0.1"
 ena = "0.10.1"
 yaml-rust = "0.4.2"
