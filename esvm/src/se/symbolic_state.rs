@@ -166,7 +166,7 @@ pub struct SeState {
     /// All symbolic keccak results which are present in the execution
     pub keccaks: Arc<HashSet<BVal>>,
 
-    /// Variable Tracker vor easier constraint handling
+    /// Variable Tracker for easier constraint handling
     pub constraints_tracker: Arc<ConstraintSetSplitter>,
 
     // loop detection
@@ -257,7 +257,7 @@ impl SeState {
         // call_depth
         new_state.call_depth = s.call_depth;
 
-        // constrints
+        // constraints
         new_state.constraints = s.constraints;
 
         // update previous_tx
@@ -278,9 +278,6 @@ impl SeState {
 
         // keccaks known in this execution context
         new_state.keccaks = s.keccaks;
-
-        // tracker
-        new_state.constraints_tracker = Arc::clone(&s.constraints_tracker);
 
         // tracker
         new_state.constraints_tracker = Arc::clone(&s.constraints_tracker);
@@ -631,7 +628,7 @@ impl SeState {
     }
 
     pub fn push_constraint(&mut self, v: BVal) {
-        // a constrain which is allways true is not a constraint
+        // a constraint which is allways true is not a constraint
         if let SymbolicTruth::True = FVal::check_truth(&v) {
             return;
         }
@@ -974,9 +971,13 @@ impl ConstraintSetSplitter {
 
     fn add_constraint(&mut self, memory: &SymbolicMemory, constraint: &BVal) -> TrackingKey {
         let val = TrackingVariable::bval(constraint);
+        /* SIROCCO: For some reason there is a duplicate constraint in self.constraints, but this logic will not add duplicates.
+                    Because self.constraints_tracker does not also contain the duplicate, a panic occurs in a debug_assert_eq because
+                    the vectors are not the same. Allow duplicates here for now until the duplicate is removed from self.constraints.
         if let Some(key) = self.mapping.get(&val) {
             return *key;
         }
+        */
         let key = self.ut.new_key(IsConstraints(Some(self.constraints.len())));
         self.constraints.push(Arc::clone(&constraint));
         self.mapping.insert(val, key);
