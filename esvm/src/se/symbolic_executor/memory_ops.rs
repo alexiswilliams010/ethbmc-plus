@@ -222,7 +222,7 @@ pub fn mstore8(s: &SeState) -> Vec<(SeState, EdgeType)> {
 
 pub fn extract_mapping_key(memory: &SymbolicMemory, val: &BVal) -> Option<BVal> {
     match val.val() {
-        Val256::FSHA3(mem, ref offset, ref len) => {
+        Val256::FSHA3(mem, offset, len) => {
             match (
                 FVal::check_truth(&eql(offset, &const_usize(0))),
                 FVal::check_truth(&eql(len, &const_usize(0x40))),
@@ -265,7 +265,7 @@ pub fn storage_load(s: &SeState) -> Vec<(SeState, EdgeType)> {
                 Val256::FSHA3(..) => {
                     mapping_key = extract_mapping_key(&res.memory, &addr);
                 }
-                Val256::FAdd(ref a, ref b) => {
+                Val256::FAdd(a, b) => {
                     if !(matches!(a, Val256::FSHA3(..)) && matches!(b, Val256::FSHA3(..))) {
                         if matches!(a, Val256::FSHA3(..)) {
                             mapping_key = extract_mapping_key(&res.memory, a);
@@ -344,7 +344,7 @@ pub fn sstore(s: &SeState) -> Vec<(SeState, EdgeType)> {
                 Val256::FSHA3(..) => {
                     mapping_key = extract_mapping_key(&res.memory, &addr);
                 }
-                Val256::FAdd(ref a, ref b) => {
+                Val256::FAdd(a, b) => {
                     if !(matches!(a, Val256::FSHA3(..)) && matches!(b, Val256::FSHA3(..))) {
                         if matches!(a, Val256::FSHA3(..)) {
                             mapping_key = extract_mapping_key(&res.memory, a);

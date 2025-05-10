@@ -25,12 +25,12 @@ macro_rules! matches {
 #[cfg(test)]
 pub fn compare_bval(a: &BVal, b: &BVal) -> bool {
     match (&a.val, &b.val) {
-        (Val256::FMLoad(_, ref addr_a), Val256::FMLoad(_, ref addr_b))
-        | (Val256::FSLoad(_, ref addr_a), Val256::FSLoad(_, ref addr_b)) => addr_a == addr_b,
-        (Val256::FSHA3(_, ref addr_a, ref val_a), Val256::FSHA3(_, ref addr_b, ref val_b)) => {
+        (Val256::FMLoad(_, addr_a), Val256::FMLoad(_, addr_b))
+        | (Val256::FSLoad(_, addr_a), Val256::FSLoad(_, addr_b)) => addr_a == addr_b,
+        (Val256::FSHA3(_, addr_a, val_a), Val256::FSHA3(_, addr_b, val_b)) => {
             addr_a == addr_b && val_a == val_b
         }
-        (Val256::FCombine32(ref v_a), Val256::FCombine32(ref v_b)) => {
+        (Val256::FCombine32(v_a), Val256::FCombine32(v_b)) => {
             for i in 0..32 {
                 if !compare_bval(&v_a[i], &v_b[i]) {
                     return false;
@@ -779,7 +779,7 @@ fn simpl(val: &BVal) -> BVal {
                  * (b + a) - b  ==> a
                  */
                 match (&a.val, &b.val) {
-                    (Val256::FAdd(ref l, ref r), Val256::FVarRef(_)) => {
+                    (Val256::FAdd(l, r), Val256::FVarRef(_)) => {
                         if l == b {
                             return Arc::clone(r);
                         }
@@ -787,7 +787,7 @@ fn simpl(val: &BVal) -> BVal {
                             return Arc::clone(l);
                         }
                     }
-                    (Val256::FVarRef(_), Val256::FAdd(ref l, ref r)) => {
+                    (Val256::FVarRef(_), Val256::FAdd(l, r)) => {
                         if l == b {
                             return Arc::clone(r);
                         }
@@ -806,7 +806,7 @@ fn simpl(val: &BVal) -> BVal {
         Val256::FMul(ref a, ref b) => {
             if CONFIG.read().unwrap().arithmetic_simplification {
                 match (&a.val, &b.val) {
-                    (_, Val256::FConst(ref c)) | (_, Val256::FConst8(ref c)) => {
+                    (_, Val256::FConst(c)) | (_, Val256::FConst8(c)) => {
                         // a * 0 => 0
                         if c.is_zero() {
                             return zero();
@@ -816,7 +816,7 @@ fn simpl(val: &BVal) -> BVal {
                             return Arc::clone(a);
                         }
                     }
-                    (Val256::FConst(ref c), _) | (Val256::FConst8(ref c), _) => {
+                    (Val256::FConst(c), _) | (Val256::FConst8(c), _) => {
                         // 0 * b => 0
                         if c.is_zero() {
                             return zero();
@@ -974,7 +974,7 @@ fn simpl(val: &BVal) -> BVal {
         Val256::FAnd(ref a, ref b) => {
             if CONFIG.read().unwrap().arithmetic_simplification {
                 match (&a.val, &b.val) {
-                    (_, Val256::FConst(ref c)) | (_, Val256::FConst8(ref c)) => {
+                    (_, Val256::FConst(c)) | (_, Val256::FConst8(c)) => {
                         // a & 0 => a
                         if c.is_zero() {
                             return zero();
@@ -984,7 +984,7 @@ fn simpl(val: &BVal) -> BVal {
                             return Arc::clone(b);
                         }
                     }
-                    (Val256::FConst(ref c), _) | (Val256::FConst8(ref c), _) => {
+                    (Val256::FConst(c), _) | (Val256::FConst8(c), _) => {
                         // 0 & b => 0
                         if c.is_zero() {
                             return zero();
@@ -1005,7 +1005,7 @@ fn simpl(val: &BVal) -> BVal {
         Val256::FOr(ref a, ref b) => {
             if CONFIG.read().unwrap().arithmetic_simplification {
                 match (&a.val, &b.val) {
-                    (_, Val256::FConst(ref c)) | (_, Val256::FConst8(ref c)) => {
+                    (_, Val256::FConst(c)) | (_, Val256::FConst8(c)) => {
                         // a | 0 => a
                         if c.is_zero() {
                             return Arc::clone(a);
@@ -1015,7 +1015,7 @@ fn simpl(val: &BVal) -> BVal {
                             return max();
                         }
                     }
-                    (Val256::FConst(ref c), _) | (Val256::FConst8(ref c), _) => {
+                    (Val256::FConst(c), _) | (Val256::FConst8(c), _) => {
                         // 0 | b => b
                         if c.is_zero() {
                             return Arc::clone(b);
@@ -1041,7 +1041,7 @@ fn simpl(val: &BVal) -> BVal {
         }
         Val256::FNot(ref a) => {
             if CONFIG.read().unwrap().arithmetic_simplification {
-                if let Val256::FNot(ref v) = &a.val {
+                if let Val256::FNot(v) = &a.val {
                     // -(-(a)) = a
                     return Arc::clone(v);
                 }
@@ -1773,9 +1773,9 @@ mod tests {
         let mut rng = thread_rng();
 
         for _ in 0..1000 {
-            let a: u32 = rng.gen::<u32>() % ((u32::MAX / 2) + 1);
-            let b: u32 = rng.gen::<u32>() % ((u32::MAX / 2) + 1);
-            let len: u32 = rng.gen::<u32>() % ((u32::MAX / 2) + 1);
+            let a: u32 = rng.gen_range(0, u32::MAX / 2 + 1);
+            let b: u32 = rng.gen_range(0, u32::MAX / 2 + 1);
+            let len: u32 = rng.gen_range(0, u32::MAX / 2 + 1);
 
             let correct = a < b || a > (b + len);
             let a = const_usize(a as usize);

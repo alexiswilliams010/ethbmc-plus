@@ -665,7 +665,7 @@ impl SeState {
     pub fn record_read(&mut self, read: &BVal) {
         match read.val() {
             Val256::FMLoad(mem, _) | Val256::FSLoad(mem, _) => self.record_mload(*mem, read),
-            Val256::FCombine32(ref v) => {
+            Val256::FCombine32(v) => {
                 for load in v {
                     if let Val256::FMLoad(mem, _) = load.val() {
                         self.record_mload(*mem, load);
@@ -900,8 +900,8 @@ enum TrackingVariable {
 impl PartialEq for TrackingVariable {
     fn eq(&self, other: &TrackingVariable) -> bool {
         match (self, other) {
-            (TrackingVariable::BVal(ref l), TrackingVariable::BVal(ref r)) => bval_depended(l, r),
-            (TrackingVariable::MVal(ref l), TrackingVariable::MVal(ref r)) => l.eq(r),
+            (TrackingVariable::BVal(l), TrackingVariable::BVal(r)) => bval_depended(l, r),
+            (TrackingVariable::MVal(l), TrackingVariable::MVal(r)) => l.eq(r),
             _ => false,
         }
     }
@@ -913,7 +913,7 @@ fn bval_depended(l: &BVal, r: &BVal) -> bool {
         // equal constant values do not imply dependency
         (Val256::FConst(_), Val256::FConst(_)) | (Val256::FConst8(_), Val256::FConst8(_)) => false,
         // equal variable names does however (we use unique variable names for all sym variables)
-        (Val256::FVarRef(ref l), Val256::FVarRef(ref r)) => l == r,
+        (Val256::FVarRef(l), Val256::FVarRef(r)) => l == r,
         (_, _) => l.eq(r),
     }
 }
@@ -1002,7 +1002,7 @@ impl ConstraintSetSplitter {
             let root = self.ut.find(key);
             let index = self.ut.probe_value(root);
             let superset = &mut constraints[index.0.unwrap()];
-            if let Some(ref mut vec) = superset {
+            if let Some(vec) = superset {
                 vec.push(Arc::clone(c));
             } else {
                 *superset = Some(vec![Arc::clone(c)]);
@@ -1051,13 +1051,13 @@ impl ConstraintSetSplitter {
         match op {
             MemoryOperation::Write8 {
                 parent: id,
-                address: ref addr,
-                value: ref val,
+                address: addr,
+                value: val,
             }
             | MemoryOperation::Write256 {
                 parent: id,
-                address: ref addr,
-                value: ref val,
+                address: addr,
+                value: val,
             } => {
                 self.explore_bval(parent_key, memory, Some(addr));
                 self.explore_bval(parent_key, memory, Some(val));
@@ -1065,9 +1065,9 @@ impl ConstraintSetSplitter {
             }
             MemoryOperation::Memset {
                 parent: id,
-                index: ref from,
-                size: ref length,
-                value: ref val,
+                index: from,
+                size: length,
+                value: val,
             } => {
                 self.explore_bval(parent_key, memory, Some(from));
                 self.explore_bval(parent_key, memory, Some(val));
@@ -1076,8 +1076,8 @@ impl ConstraintSetSplitter {
             }
             MemoryOperation::MemsetUnlimited {
                 parent: id,
-                index: ref from,
-                value: ref val,
+                index: from,
+                value: val,
             } => {
                 self.explore_bval(parent_key, memory, Some(from));
                 self.explore_bval(
@@ -1090,9 +1090,9 @@ impl ConstraintSetSplitter {
             MemoryOperation::Memcopy {
                 parent: to,
                 from,
-                index: ref to_index,
-                index_from: ref from_index,
-                size: ref length,
+                index: to_index,
+                index_from: from_index,
+                size: length,
             } => {
                 self.explore_bval(parent_key, memory, Some(from_index));
                 self.explore_bval(parent_key, memory, Some(to_index));
@@ -1103,8 +1103,8 @@ impl ConstraintSetSplitter {
             MemoryOperation::MemcopyUnlimited {
                 parent: to,
                 from,
-                index: ref to_index,
-                index_from: ref from_index,
+                index: to_index,
+                index_from: from_index,
             } => {
                 self.explore_bval(parent_key, memory, Some(from_index));
                 self.explore_bval(parent_key, memory, Some(to_index));
@@ -1117,47 +1117,47 @@ impl ConstraintSetSplitter {
 
     fn process_bval(&mut self, parent_key: TrackingKey, memory: &SymbolicMemory, val: &BVal) {
         match val.val() {
-            Val256::FAdd(ref l, ref r)
-            | Val256::FSub(ref l, ref r)
-            | Val256::FMul(ref l, ref r)
-            | Val256::FDiv(ref l, ref r)
-            | Val256::FSDiv(ref l, ref r)
-            | Val256::FMod(ref l, ref r)
-            | Val256::FSMod(ref l, ref r)
-            | Val256::FExp(ref l, ref r)
-            | Val256::FAnd(ref l, ref r)
-            | Val256::FOr(ref l, ref r)
-            | Val256::FXor(ref l, ref r)
-            | Val256::FLt(ref l, ref r)
-            | Val256::FLe(ref l, ref r)
-            | Val256::FSLt(ref l, ref r)
-            | Val256::FEql(ref l, ref r)
-            | Val256::FNEql(ref l, ref r)
-            | Val256::FImplies(ref l, ref r)
-            | Val256::FByteAt(ref l, ref r)
-            | Val256::FByteExtract(ref l, ref r)
-            | Val256::FAShr(ref l, ref r)
-            | Val256::FLShr(ref l, ref r)
-            | Val256::FShl(ref l, ref r) => {
+            Val256::FAdd(l, r)
+            | Val256::FSub(l, r)
+            | Val256::FMul(l, r)
+            | Val256::FDiv(l, r)
+            | Val256::FSDiv(l, r)
+            | Val256::FMod(l, r)
+            | Val256::FSMod(l, r)
+            | Val256::FExp(l, r)
+            | Val256::FAnd(l, r)
+            | Val256::FOr(l, r)
+            | Val256::FXor(l, r)
+            | Val256::FLt(l, r)
+            | Val256::FLe(l, r)
+            | Val256::FSLt(l, r)
+            | Val256::FEql(l, r)
+            | Val256::FNEql(l, r)
+            | Val256::FImplies(l, r)
+            | Val256::FByteAt(l, r)
+            | Val256::FByteExtract(l, r)
+            | Val256::FAShr(l, r)
+            | Val256::FLShr(l, r)
+            | Val256::FShl(l, r) => {
                 self.explore_bval(parent_key, memory, Some(l));
                 self.explore_bval(parent_key, memory, Some(r));
             }
-            Val256::FNot(ref v) => self.explore_bval(parent_key, memory, Some(v)),
-            Val256::FITE(ref c, ref t, ref e) => {
+            Val256::FNot(v) => self.explore_bval(parent_key, memory, Some(v)),
+            Val256::FITE(c, t, e) => {
                 self.explore_bval(parent_key, memory, Some(c));
                 self.explore_bval(parent_key, memory, Some(t));
                 self.explore_bval(parent_key, memory, Some(e));
             }
-            Val256::FMLoad(mem, ref addr) | Val256::FSLoad(mem, ref addr) => {
+            Val256::FMLoad(mem, addr) | Val256::FSLoad(mem, addr) => {
                 self.explore_mval(parent_key, memory, *mem);
                 self.explore_bval(parent_key, memory, Some(addr));
             }
-            Val256::FCombine32(ref loads) => {
+            Val256::FCombine32(loads) => {
                 for load in loads {
                     self.explore_bval(parent_key, memory, Some(load));
                 }
             }
-            Val256::FSHA3(mem, ref offset, ref len) => {
+            Val256::FSHA3(mem, offset, len) => {
                 self.explore_mval(parent_key, memory, *mem);
                 self.explore_bval(parent_key, memory, Some(offset));
                 self.explore_bval(parent_key, memory, Some(len));

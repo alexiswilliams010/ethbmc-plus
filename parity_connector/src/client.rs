@@ -1,22 +1,27 @@
 use ethereum_newtypes::{Address, Bytes, WU256};
 
-use types::*;
+use crate::types::*;
 
 jsonrpc_client!(
     #[derive(Clone, Debug)]
     pub struct ParityClient {
     /// Returns the current blocknumber
+    #[allow(non_snake_case)]
     pub fn eth_blockNumber(&mut self) -> RpcRequest<WU256>;
 
     /// Returns the current coinbase
+    #[allow(non_snake_case)]
     pub fn eth_getBlockByNumber(&mut self, number: BlockSelector, as_tx: bool) -> RpcRequest<Block>;
 
     /// Load the code for a given address and block number
+    #[allow(non_snake_case)]
     pub fn eth_getCode(&mut self, address: Address, number: BlockSelector) -> RpcRequest<Bytes>;
 
     /// Load the balance of a given account at the given blocknumber
+    #[allow(non_snake_case)]
     pub fn eth_getBalance(&mut self, address: Address, number: BlockSelector) -> RpcRequest<WU256>;
 
+    #[allow(non_snake_case)]
     pub fn eth_getStorage(&mut self, address: Address, number: BlockSelector) -> RpcRequest<Storage>;
 });
 
@@ -30,10 +35,8 @@ mod tests {
     use std::io;
     use uint::U256;
 
-    use futures::future as futures;
-    use futures::future::Future;
-
-    type BoxFuture<T, E> = Box<Future<Item = T, Error = E> + Send>;
+    use futures::{Future, future::done};
+    type BoxFuture<T, E> = Box<dyn Future<Item = T, Error = E> + Send>;
 
     struct ParityTestTransport;
 
@@ -56,7 +59,7 @@ mod tests {
             }),
                 _ => unreachable!(),
             };
-            Box::new(futures::ok(serde::to_vec(&json).unwrap()))
+            Box::new(done(Ok(serde::to_vec(&json).unwrap())))
         }
     }
 

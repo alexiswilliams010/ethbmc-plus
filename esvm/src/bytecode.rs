@@ -80,7 +80,7 @@ pub enum Instr {
 impl Instr {
     pub fn size(&self) -> usize {
         match self {
-            Instr::IPush(ref a) => a.len() + 1,
+            Instr::IPush(a) => a.len() + 1,
             _ => 1,
         }
     }

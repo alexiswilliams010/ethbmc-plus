@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    error::Error,
     io::{self, prelude::*, BufReader, Read},
 };
 

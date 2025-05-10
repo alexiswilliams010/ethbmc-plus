@@ -74,77 +74,89 @@ pub fn memory_info_equal(a: &MemoryInfo, b: &MemoryInfo) -> bool {
         (MemoryOperation::Init, MemoryOperation::Init) => true,
         (
             MemoryOperation::Write8 {
-                address: ref addr_a,
-                value: ref val_a,
+                address: addr_a,
+                value: val_a,
                 ..
             },
             MemoryOperation::Write8 {
-                address: ref addr_b,
-                value: ref val_b,
+                address: addr_b,
+                value: val_b,
                 ..
             },
         )
         | (
             MemoryOperation::Write256 {
-                address: ref addr_a,
-                value: ref val_a,
+                address: addr_a,
+                value: val_a,
                 ..
             },
             MemoryOperation::Write256 {
-                address: ref addr_b,
-                value: ref val_b,
+                address: addr_b,
+                value: val_b,
                 ..
             },
         )
         | (
             MemoryOperation::MemsetUnlimited {
-                index: ref addr_a,
-                value: ref val_a,
+                index: addr_a,
+                value: Some(val_a),
                 ..
             },
             MemoryOperation::MemsetUnlimited {
-                index: ref addr_b,
-                value: ref val_b,
+                index: addr_b,
+                value: Some(val_b),
                 ..
             },
         ) => compare_bval(addr_a, addr_b) && compare_bval(val_a, val_b),
         (
+            MemoryOperation::MemsetUnlimited {
+                index: addr_a,
+                value: None,
+                ..
+            },
+            MemoryOperation::MemsetUnlimited {
+                index: addr_b,
+                value: None,
+                ..
+            },
+        ) => compare_bval(addr_a, addr_b),
+        (
             MemoryOperation::Memset {
-                index: ref a_a,
-                value: ref b_a,
-                size: ref c_a,
+                index: a_a,
+                value: b_a,
+                size: c_a,
                 ..
             },
             MemoryOperation::Memset {
-                index: ref a_b,
-                value: ref b_b,
-                size: ref c_b,
+                index: a_b,
+                value: b_b,
+                size: c_b,
                 ..
             },
         ) => compare_bval(a_a, a_b) && compare_bval(b_a, b_b) && compare_bval(c_a, c_b),
         (
             MemoryOperation::Memcopy {
-                index: ref a_a,
-                index_from: ref b_a,
-                size: ref c_a,
+                index: a_a,
+                index_from: b_a,
+                size: c_a,
                 ..
             },
             MemoryOperation::Memcopy {
-                index: ref a_b,
-                index_from: ref b_b,
-                size: ref c_b,
+                index: a_b,
+                index_from: b_b,
+                size: c_b,
                 ..
             },
         ) => compare_bval(a_a, a_b) && compare_bval(b_a, b_b) && compare_bval(c_a, c_b),
         (
             MemoryOperation::MemcopyUnlimited {
-                index: ref a_a,
-                index_from: ref b_a,
+                index: a_a,
+                index_from: b_a,
                 ..
             },
             MemoryOperation::MemcopyUnlimited {
-                index: ref a_b,
-                index_from: ref b_b,
+                index: a_b,
+                index_from: b_b,
                 ..
             },
         ) => compare_bval(a_a, a_b) && compare_bval(b_a, b_b),
@@ -675,14 +687,14 @@ fn get_needed_read_indices(
         if let Some(read) = reads.get(&val) {
             for r in read {
                 match r.val() {
-                    Val256::FCombine32(ref v) => {
+                    Val256::FCombine32(v) => {
                         for l in v {
-                            if let Val256::FMLoad(_, ref addr) = l.val() {
+                            if let Val256::FMLoad(_, addr) = l.val() {
                                 n.insert(Arc::clone(addr));
                             }
                         }
                     }
-                    Val256::FMLoad(_, ref addr) | Val256::FSLoad(_, ref addr) => {
+                    Val256::FMLoad(_, addr) | Val256::FSLoad(_, addr) => {
                         n.insert(Arc::clone(addr));
                     }
                     _ => unreachable!(),

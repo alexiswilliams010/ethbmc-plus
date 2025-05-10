@@ -548,32 +548,32 @@ impl<'a> SmtLib2Builder<'a> {
 
     fn smtlib2_encoding(&mut self, val: &BVal) -> String {
         match val.val() {
-            Val256::FAdd(ref l, ref r) => self.bin_op("bvadd", l, r),
-            Val256::FSub(ref l, ref r) => self.bin_op("bvsub", l, r),
-            Val256::FMul(ref l, ref r) => self.bin_op("bvmul", l, r),
-            Val256::FDiv(ref l, ref r) => self.bin_op("bvudiv", l, r),
-            Val256::FSDiv(ref l, ref r) => self.bin_op("bvsdiv", l, r),
-            Val256::FMod(ref l, ref r) => self.bin_op("bvurem", l, r),
-            Val256::FSMod(ref l, ref r) => self.bin_op("bvsmod", l, r),
-            Val256::FExp(ref l, ref r) => {
+            Val256::FAdd(l, r) => self.bin_op("bvadd", l, r),
+            Val256::FSub(l, r) => self.bin_op("bvsub", l, r),
+            Val256::FMul(l, r) => self.bin_op("bvmul", l, r),
+            Val256::FDiv(l, r) => self.bin_op("bvudiv", l, r),
+            Val256::FSDiv(l, r) => self.bin_op("bvsdiv", l, r),
+            Val256::FMod(l, r) => self.bin_op("bvurem", l, r),
+            Val256::FSMod(l, r) => self.bin_op("bvsmod", l, r),
+            Val256::FExp(l, r) => {
                 debug_assert!(FVal::as_usize(&l).unwrap() == 2);
                 self.bin_op("bvshl", l, &sub(r, &const_usize(1)))
             }
-            Val256::FITE(ref c, ref t, ref e) => format!(
+            Val256::FITE(c, t, e) => format!(
                 "(ite {} {} {})",
                 self.to_bool(c, bval_size(c)),
                 self.to_smt(t),
                 self.to_smt(e)
             ),
-            Val256::FAnd(ref l, ref r) => self.bin_op("bvand", l, r),
-            Val256::FOr(ref l, ref r) => self.bin_op("bvor", l, r),
-            Val256::FXor(ref l, ref r) => self.bin_op("bvxor", l, r),
-            Val256::FNot(ref v) => format!("(bvnot {})", self.to_smt(v)),
-            Val256::FConst(ref string) | Val256::FConst8(ref string) => {
+            Val256::FAnd(l, r) => self.bin_op("bvand", l, r),
+            Val256::FOr(l, r) => self.bin_op("bvor", l, r),
+            Val256::FXor(l, r) => self.bin_op("bvxor", l, r),
+            Val256::FNot(v) => format!("(bvnot {})", self.to_smt(v)),
+            Val256::FConst(string) | Val256::FConst8(string) => {
                 format!("(_ bv{} {})", string, FVal::get_size(val))
             }
-            Val256::FVarRef(ref name) => self.var(name, 256),
-            Val256::FLt(ref l, ref r) => {
+            Val256::FVarRef(name) => self.var(name, 256),
+            Val256::FLt(l, r) => {
                 debug_assert!(
                     FVal::get_size(l) == FVal::get_size(r),
                     "Comparing two different sized variables: {:?} {:?}",
@@ -583,7 +583,7 @@ impl<'a> SmtLib2Builder<'a> {
                 let bv = format!("(bvult {} {})", self.to_smt(l), self.to_smt(r));
                 self.from_bool(&bv, FVal::get_size(l))
             }
-            Val256::FLe(ref l, ref r) => {
+            Val256::FLe(l, r) => {
                 debug_assert!(
                     FVal::get_size(l) == FVal::get_size(r),
                     "Comparing two different sized variables: {:?} {:?}",
@@ -593,7 +593,7 @@ impl<'a> SmtLib2Builder<'a> {
                 let bv = format!("(bvule {} {})", self.to_smt(l), self.to_smt(r));
                 self.from_bool(&bv, FVal::get_size(l))
             }
-            Val256::FSLt(ref l, ref r) => {
+            Val256::FSLt(l, r) => {
                 debug_assert!(
                     FVal::get_size(l) == FVal::get_size(r),
                     "Comparing two different sized variables: {:?} {:?}",
@@ -603,7 +603,7 @@ impl<'a> SmtLib2Builder<'a> {
                 let bv = format!("(bvslt {} {})", self.to_smt(l), self.to_smt(r));
                 self.from_bool(&bv, FVal::get_size(l))
             }
-            Val256::FEql(ref l, ref r) => {
+            Val256::FEql(l, r) => {
                 debug_assert!(
                     FVal::get_size(l) == FVal::get_size(r),
                     "Comparing two different sized variables: {:?} {:?}",
@@ -613,7 +613,7 @@ impl<'a> SmtLib2Builder<'a> {
                 let bv = format!("(= {} {})", self.to_smt(l), self.to_smt(r));
                 self.from_bool(&bv, FVal::get_size(l))
             }
-            Val256::FNEql(ref l, ref r) => {
+            Val256::FNEql(l, r) => {
                 debug_assert!(
                     FVal::get_size(l) == FVal::get_size(r),
                     "Comparing two different sized variables: {:?} {:?}",
@@ -623,12 +623,12 @@ impl<'a> SmtLib2Builder<'a> {
                 let bv = format!("(distinct {} {})", self.to_smt(l), self.to_smt(r));
                 self.from_bool(&bv, FVal::get_size(l))
             }
-            Val256::FImplies(ref l, ref r) => format!(
+            Val256::FImplies(l, r) => format!(
                 "(=> {} {})",
                 self.to_bool(l, FVal::get_size(l)),
                 self.to_bool(r, FVal::get_size(r))
             ),
-            Val256::FMLoad(mem, ref addr) | Val256::FSLoad(mem, ref addr) => {
+            Val256::FMLoad(mem, addr) | Val256::FSLoad(mem, addr) => {
                 self.push_memory(*mem);
                 format!(
                     "(select {} {} )",
@@ -636,7 +636,7 @@ impl<'a> SmtLib2Builder<'a> {
                     self.to_smt(addr)
                 )
             }
-            Val256::FByteAt(ref val, ref offset) => {
+            Val256::FByteAt(val, offset) => {
                 let o = self.to_smt(&mul(offset, &const_usize(8)));
                 format!(
                     "(concat (_ bv0 248) ((_ extract 7 0) (bvlshr {} (bvmul {} (_ bv8 256) )) ))",
@@ -644,7 +644,7 @@ impl<'a> SmtLib2Builder<'a> {
                     o
                 )
             }
-            Val256::FByteExtract(ref val, ref offset) => {
+            Val256::FByteExtract(val, offset) => {
                 let o = self.to_smt(&mul(offset, &const_usize(8)));
                 format!(
                     "((_ extract 7 0) (bvlshr {} (bvmul {} (_ bv8 256) )) )",
@@ -652,16 +652,16 @@ impl<'a> SmtLib2Builder<'a> {
                     o
                 )
             }
-            Val256::FAShr(ref val, ref size) => {
+            Val256::FAShr(val, size) => {
                 format!("(bvashr {} {})", self.to_smt(val), self.to_smt(size))
             }
-            Val256::FLShr(ref val, ref size) => {
+            Val256::FLShr(val, size) => {
                 format!("(bvlshr {} {})", self.to_smt(val), self.to_smt(size))
             }
-            Val256::FShl(ref val, ref size) => {
+            Val256::FShl(val, size) => {
                 format!("(bvshl {} {})", self.to_smt(val), self.to_smt(size))
             }
-            Val256::FCombine32(ref loads) => {
+            Val256::FCombine32(loads) => {
                 debug_assert!(loads.len() == 32);
                 let mut concat = String::from("(concat ");
                 for load in loads {
@@ -670,7 +670,7 @@ impl<'a> SmtLib2Builder<'a> {
                 concat.push_str(")");
                 concat
             }
-            Val256::FSHA3(mem, ref offset, ref len) => {
+            Val256::FSHA3(mem, offset, len) => {
                 self.push_memory(*mem);
                 let kec = Keccak {
                     val: Arc::clone(val),

@@ -34,7 +34,7 @@ use crate::se::{
 use crate::{LoadedAccount, PrecompiledContracts};
 
 #[cfg(test)]
-use crate::se::expr::symbolic_memory::{self, MemoryType};
+use crate::se::expr::symbolic_memory::{self};
 
 use super::symbolic_executor::memory_ops::extract_mapping_key;
 

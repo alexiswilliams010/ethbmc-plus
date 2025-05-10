@@ -13,14 +13,20 @@ use uint::U256;
 #[macro_use]
 mod macros;
 
-/// A wrapper around U256, pads to even length by default
-impl_u256_newtype!(pub struct WU256(pub U256));
+impl_u256_newtype!(
+    /// A wrapper around U256, pads to even length by default
+    pub struct WU256(pub U256)
+);
 
-/// An ethereum account address, pads to 20 byte hex representation by default
-impl_u256_newtype!(pub struct Address(pub U256));
+impl_u256_newtype!(
+    /// An ethereum account address, pads to 20 byte hex representation by default
+    pub struct Address(pub U256)
+);
 
-/// An ethereum Hash, pads to 32 byte hex representation by default
-impl_u256_newtype!(pub struct Hash(pub U256));
+impl_u256_newtype!(
+    /// An ethereum Hash, pads to 32 byte hex representation by default
+    pub struct Hash(pub U256)
+);
 
 /// A wrapper around a byte array
 #[derive(Clone, Hash, PartialEq, Eq)]
