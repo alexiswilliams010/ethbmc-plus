@@ -8,8 +8,15 @@ fn serde_hex_u64<S: serde::Serializer>(n: &u64, serializer: S) -> Result<S::Ok, 
     serializer.serialize_str(&format!("{:#x}", *n))
 }
 
+// Helper function to deserialize hex string to u64
+fn deserialize_hex_u64<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    let s = String::deserialize(deserializer)?;
+    let s = s.trim_start_matches("0x");
+    u64::from_str_radix(s, 16).map_err(serde::de::Error::custom)
+}
+
 // # EIP-3155 Output struct, copied from revm because idk how to actually deserialize the output from TracerEip3155
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Output {
     // Required fields:
@@ -21,10 +28,10 @@ struct Output {
     /// OpCode
     op: u8,
     /// Gas left before executing this operation
-    #[serde(serialize_with = "serde_hex_u64")]
+    #[serde(serialize_with = "serde_hex_u64", deserialize_with = "deserialize_hex_u64")]
     gas: u64,
     /// Gas cost of this operation
-    #[serde(serialize_with = "serde_hex_u64")]
+    #[serde(serialize_with = "serde_hex_u64", deserialize_with = "deserialize_hex_u64")]
     gas_cost: u64,
     /// Array of all values on the stack
     stack: Vec<U256>,
@@ -36,10 +43,10 @@ struct Output {
     /// Data returned by the function call
     return_data: String,
     /// Amount of **global** gas refunded
-    #[serde(serialize_with = "serde_hex_u64")]
+    #[serde(serialize_with = "serde_hex_u64", deserialize_with = "deserialize_hex_u64")]
     refund: u64,
     /// Size of memory array
-    #[serde(serialize_with = "serde_hex_u64")]
+    #[serde(serialize_with = "serde_hex_u64", deserialize_with = "deserialize_hex_u64")]
     mem_size: u64,
 
     /// Array of all allocated values - we always parse with memory on in TracerEip3155
@@ -51,7 +58,7 @@ struct Output {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     op_name: Option<String>,
     /// Description of an error (should contain revert reason if supported)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     error: Option<String>,
     /// Array of all stored values
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,7 +79,7 @@ struct ParsedTraceLine {
 }
 
 fn parse_trace_line_with_depth(line: &str) -> Option<ParsedTraceLine> {
-    let output = serde_json::from_str::<Output>(line).ok()?;
+    let output = serde_json::from_str::<Output>(line).unwrap();
     let instruction = match output.op {
         // https://github.com/trailofbits/evm-opcodes or yellowpaper
         0x54 => {
@@ -92,7 +99,7 @@ fn parse_trace_line_with_depth(line: &str) -> Option<ParsedTraceLine> {
             let mut stack = output.stack;
             debug_assert!(stack.len() >= 7);
             let gas = stack.pop().unwrap();
-            let receiver = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>());
+            let receiver = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>()[12..32]);
             let value = stack.pop().unwrap();
             let in_offset = stack.pop().unwrap();
             let in_size = stack.pop().unwrap();
@@ -112,7 +119,7 @@ fn parse_trace_line_with_depth(line: &str) -> Option<ParsedTraceLine> {
             let mut stack = output.stack;
             debug_assert!(stack.len() >= 7);
             let gas = stack.pop().unwrap();
-            let code_from = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>());
+            let code_from = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>()[12..32]);
             let value = stack.pop().unwrap();
             let in_offset = stack.pop().unwrap();
             let in_size = stack.pop().unwrap();
@@ -132,7 +139,7 @@ fn parse_trace_line_with_depth(line: &str) -> Option<ParsedTraceLine> {
             let mut stack = output.stack;
             debug_assert!(stack.len() >= 7);
             let gas = stack.pop().unwrap();
-            let code_from = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>());
+            let code_from = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>()[12..32]);
             let in_offset = stack.pop().unwrap();
             let in_size = stack.pop().unwrap();
             let out_offset = stack.pop().unwrap();
@@ -150,7 +157,7 @@ fn parse_trace_line_with_depth(line: &str) -> Option<ParsedTraceLine> {
             let mut stack = output.stack;
             debug_assert!(stack.len() >= 7);
             let gas = stack.pop().unwrap();
-            let receiver = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>());
+            let receiver = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>()[12..32]);
             let value = stack.pop().unwrap();
             let in_offset = stack.pop().unwrap();
             let in_size = stack.pop().unwrap();
@@ -169,7 +176,7 @@ fn parse_trace_line_with_depth(line: &str) -> Option<ParsedTraceLine> {
         0xff => {
             let mut stack = output.stack;
             debug_assert!(stack.len() >= 7);
-            let receiver = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>());
+            let receiver = Address::from_slice(&stack.pop().unwrap().to_be_bytes::<32>()[12..32]);
             Some(Instruction::Selfdestruct { receiver })
         }
         0xfd => {

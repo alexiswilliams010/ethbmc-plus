@@ -27,7 +27,7 @@ use crate::se::{
     symbolic_graph::SymbolicGraph,
     symbolic_state::{Flags, HaltingReason, ResultState, SeState},
 };
-use crate::{LoadedAccount, PrecompiledContracts};
+use crate::{LoadedAccount, PrecompiledContracts, convert_fval_to_address};
 
 #[cfg(test)]
 use crate::se::expr::symbolic_memory::{self};
@@ -380,7 +380,7 @@ impl Analysis {
                             };
                             let acc = LoadedAccount {
                                 id: acc_ref.id.0,
-                                address: Address::from_slice(&<[u8; 32]>::from(BitVec::as_bigint(&acc_ref.addr).unwrap())[12..32]),
+                                address: convert_fval_to_address(&acc_ref.addr),
                                 balance: acc_ref.initial_balance.as_ref().cloned(),
                                 code: acc_ref.code().cloned().map(|v| v.into()),
                                 code_length: acc_ref.get_codesize() as u32,
@@ -678,11 +678,8 @@ impl Analysis {
 
         let mut evm: Revm = Revm::new(genesis);
         evm.update_state_from_genesis();
-        let sender_addr: uint::U256 = BitVec::as_bigint(&state.env.get_account(&self.from).addr).unwrap().into();
-        let sender: Address = Address::from_slice(&<[u8; 32]>::from(sender_addr)[12..32]);
-
-        let receiver_addr: uint::U256 = BitVec::as_bigint(&state.env.get_account(&self.to).addr).unwrap().into();
-        let receiver: Address = Address::from_slice(&<[u8; 32]>::from(receiver_addr)[12..32]);
+        let sender = convert_fval_to_address(&state.env.get_account(&self.from).addr);
+        let receiver = convert_fval_to_address(&state.env.get_account(&self.to).addr);
 
         let mut execution;
         for (
@@ -723,8 +720,7 @@ impl Analysis {
             return Some(());
         }
 
-        let sender_addr: uint::U256 = BitVec::as_bigint(&state.env.get_account(&self.from).addr).unwrap().into();
-        let sender: Address = Address::from_slice(&<[u8; 32]>::from(sender_addr)[12..32]);
+        let sender = convert_fval_to_address(&state.env.get_account(&self.from).addr);
         let evm = self
             .execute_concrete_evm(state, attack_data)?;
         if evm.genesis.alloc[&sender].balance > U256::from(10_000_000_000_000_000_000u64) {
@@ -740,7 +736,7 @@ impl Analysis {
         }
 
         let evm = self.execute_concrete_evm(state, attack_data)?;
-        let hijack_address = Address::from_str(crate::se::config::HIJACK_ADDR).unwrap();
+        let hijack_address = Address::from_str(crate::se::config::HIJACK_ADDR_HEX).unwrap();
         for ins in evm.result.trace {
             match ins.instruction {
                 Instruction::DelegateCall { code_from, .. }
@@ -836,9 +832,7 @@ impl Analysis {
                                 let value = load_state.get_value(op)?;
 
                                 // Get the address of the account/contract it belongs to
-                                let account_addr: Address = Address::from_str(
-                                    BitVec::as_bigint(&load_state.env.get_account(&account_id).addr).unwrap().to_string().as_str()
-                                ).unwrap();
+                                let account_addr: Address = convert_fval_to_address(&load_state.env.get_account(&account_id).addr);
 
                                 // If the location we're writing to is a mapping entry,
                                 if let Val256::FSHA3(mem, offset, _len) = &addr.val().clone() {

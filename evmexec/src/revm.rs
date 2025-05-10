@@ -151,7 +151,6 @@ impl Revm {
         let mut reader = std::io::Cursor::new(trace);
 
         while let Ok(d) = reader.read_line(&mut buf) {
-            println!("buf: {}", buf);
             // end of stream
             if d == 0 {
                 break;
@@ -161,7 +160,6 @@ impl Revm {
             }
 
             if let Some(ins) = parser.parse_trace_line(&buf) {
-                println!("ins: {:?}", ins);
                 instructions.push(ins);
             }
 
