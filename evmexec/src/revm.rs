@@ -79,23 +79,25 @@ impl Revm {
     }
 
     pub fn execute(&mut self, input: RevmInput) -> Result<RevmResult, Error> {
-        let input_clone = input.clone();
+        // Peek into the nonce of the sender from the loaded CacheDB so it can be added to the tx
+        let nonce = self.db.load_account(input.sender).map_or(0, |acc| acc.info.nonce);
+
+        // Create a new writer to capture the trace of the execution
+        let mut writer = FlushWriter::new();
 
         // Setup the EVM from the stored CacheDB and modify the transaction to include the input data
-        let evm = Context::mainnet()
-            .with_db(self.db.clone())
+        let mut evm = Context::mainnet()
+            .with_db(&mut self.db)
             .modify_tx_chained(|tx| {
                 tx.caller = input.sender;
                 tx.kind = TxKind::Call(input.receiver);
                 tx.data = input.input_data.clone();
                 tx.value = input.value;
                 tx.gas_limit = input.gas as u64;
+                tx.nonce = nonce;
             })
-            .build_mainnet();
-
-        // Set an inspector to capture the trace of the execution
-        let mut writer = FlushWriter::new();
-        let mut evm = evm
+            .build_mainnet()
+            // Set an inspector to capture the trace of the execution
             .with_inspector(TracerEip3155::new(Box::new(writer.clone()))
             .without_summary()
             .with_memory());
@@ -110,7 +112,7 @@ impl Revm {
 
         Ok(RevmResult {
             genesis: self.genesis.clone(),
-            input: input_clone,
+            input: input,
             result: ExecutionResult {
                 trace: instructions,
                 new_state: State::default(),
