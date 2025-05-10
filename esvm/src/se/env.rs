@@ -371,9 +371,9 @@ impl Env {
     }
 
     pub fn from_chain() -> Self {
-        let (mut client, block) = create_parity_client();
-        let initial_block = client.block_by_number(block);
-        let analysis_depth = CONFIG.read().unwrap().message_bound;
+        // let (mut client, block) = create_parity_client();
+        // let initial_block = client.block_by_number(block);
+        // let analysis_depth = CONFIG.read().unwrap().message_bound;
         // let start_block = initial_block.number().0 - analysis_depth;
         // let block = client.block_by_number(BlockSelector::Specific(start_block.as_usize()));
 
@@ -1096,8 +1096,8 @@ impl Into<genesis::Account> for Account {
 mod tests {
     use super::*;
 
-    use crate::se::symbolic_analysis::ParityInfo;
-    use std::env;
+    // use crate::se::symbolic_analysis::ParityInfo;
+    // use std::env;
 
     use yaml_rust::YamlLoader;
 

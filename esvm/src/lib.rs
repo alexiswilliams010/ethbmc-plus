@@ -37,7 +37,7 @@ mod se;
 mod test_helpers;
 
 use std::{
-    collections::HashSet, fmt, iter::FromIterator, str::FromStr, sync::{Arc, Mutex}, time::Duration
+    collections::HashSet, fmt, iter::FromIterator, sync::{Arc, Mutex}, time::Duration
 };
 
 use clap::{App, Arg};

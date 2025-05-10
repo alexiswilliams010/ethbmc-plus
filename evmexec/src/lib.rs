@@ -6,7 +6,6 @@ extern crate subprocess;
 extern crate tempfile;
 extern crate uint;
 
-#[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate serde_derive;
@@ -16,7 +15,7 @@ extern crate maplit;
 
 pub mod evmtrace;
 pub mod genesis;
-pub mod revm;
+pub mod evm;
 
 use std::io;
 

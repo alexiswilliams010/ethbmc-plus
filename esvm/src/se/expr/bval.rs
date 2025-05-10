@@ -106,7 +106,7 @@ pub trait BitVec {
         })
     }
 
-    // SIROCCO: unused function, comment out for now
+    // Unused function, comment out for now
     /*
     fn is_tautology(val: &Arc<Self>) -> bool {
         match BitVec::check_truth(val) {
@@ -1835,7 +1835,7 @@ mod tests {
         b.iter(|| {
             let mut hasher = DefaultHasher::new();
             load.hash(&mut hasher);
-            black_box(hasher.finish()); // SIROCCO: we don't use the return value
+            black_box(hasher.finish()); // We don't use the return value
         });
     }
 }

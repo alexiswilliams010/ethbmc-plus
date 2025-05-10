@@ -9,7 +9,7 @@ use revm::primitives::{Address, Bytes, U256};
 use evmexec::{
     evmtrace::Instruction,
     genesis::Genesis,
-    revm::{Revm, RevmInput},
+    evm::{Evm, EvmInput},
 };
 use num_cpus;
 use parity_connector::BlockSelector;
@@ -665,7 +665,7 @@ impl Analysis {
         &self,
         state: &SeState,
         attack_data: &[TxData],
-    ) -> Option<evmexec::revm::RevmResult> {
+    ) -> Option<evmexec::evm::EvmResult> {
         let mut genesis: Genesis = (*state.env).clone().into();
 
         // Updating geth genesis w/ counterexample generated values
@@ -676,7 +676,7 @@ impl Analysis {
             }
         }
 
-        let mut evm: Revm = Revm::new(genesis);
+        let mut evm: Evm = Evm::new(genesis);
         evm.update_state_from_genesis();
         let sender = convert_fval_to_address(&state.env.get_account(&self.from).addr);
         let receiver = convert_fval_to_address(&state.env.get_account(&self.to).addr);
@@ -686,14 +686,14 @@ impl Analysis {
             i,
             TxData {
                 balance,
-                number,
-                timestamp,
+                number: _,
+                timestamp: _,
                 input_data,
                 storage_upd: _,
             },
         ) in attack_data.iter().enumerate()
         {
-            let input = RevmInput {
+            let input = EvmInput {
                 input_data: convert_data_to_bytes(input_data.clone()),
                 sender: sender.clone(),
                 receiver: receiver.clone(),
