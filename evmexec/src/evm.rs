@@ -66,6 +66,9 @@ impl Evm {
     ) -> Result<(BufReader<Box<dyn Read>>, TempPath), crate::Error> {
         let path = self.genesis.export()?.into_temp_path();
         let args = [
+            "--verbosity",
+            "0",
+            "run",
             "--prestate",
             path.to_str()
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
@@ -81,7 +84,8 @@ impl Evm {
             &encode(&input.input_data.as_slice(), &Prefixed::No),
             "--json",
             "--dump",
-            "run",
+            "--nomemory=false",
+            "--noreturndata=false",
         ];
 
         if cfg!(feature = "verbose") {
@@ -148,7 +152,7 @@ impl Evm {
             if state.is_err() {
                 eprintln!("Error during parsing new state:\n{}\n{:?}", buf, state);
             } else {
-                debug!("New state after tx execuction:\n{:?}", state)
+                debug!("New state after tx execution:\n{:?}", state)
             }
             state
         } else {
