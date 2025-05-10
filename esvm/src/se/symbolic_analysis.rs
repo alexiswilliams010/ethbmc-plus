@@ -12,7 +12,6 @@ use evmexec::{
     evm::{Evm, EvmInput},
 };
 use num_cpus;
-use parity_connector::BlockSelector;
 use rayon::prelude::*;
 
 use crate::bytecode::Instr;
@@ -84,15 +83,9 @@ pub struct SeConfig {
     /// Dump solver queries
     pub dump_solver: bool,
 
-    /// (Optional) The ip and port of an parity instance
-    pub parity: Option<ParityInfo>,
-
     /// The number of CPU cores to use
     pub cores: usize,
 }
-
-#[derive(Clone, Debug)]
-pub struct ParityInfo(pub String, pub isize, pub BlockSelector);
 
 impl Default for SeConfig {
     fn default() -> Self {
@@ -122,7 +115,6 @@ impl SeConfig {
             symbolic_storage: false,
             dump_solver: false,
             solver_timeout: 120_000,
-            parity: None,
             cores: number_cpu,
         }
     }

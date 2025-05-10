@@ -28,16 +28,11 @@ where
     F: Fn(&BVal, &BVal, AccountId, SeState) -> Option<Vec<(SeState, EdgeType)>>,
 {
     if FVal::as_bigint(&to).is_some() {
-        let mut res = s.fork();
+        let res = s.fork();
         let id = if let Some(id) = s.env.try_get_account_id_by_addr(to) {
             *id
         } else {
-            let maybe_id = Arc::make_mut(&mut res.env)
-                .try_load_account_from_chain(Arc::make_mut(&mut res.memory), to);
-            if maybe_id.is_none() {
-                return vec![];
-            }
-            maybe_id.unwrap()
+            return vec![];
         };
 
         if let Some(transition) = f(to, to, id, res) {
@@ -618,12 +613,10 @@ mod tests {
     use std::collections::HashSet;
     use std::env;
     use std::iter::FromIterator;
-
-    use parity_connector::BlockSelector;
     use uint::U256;
 
     use crate::se::config::{ORIGIN, TARGET_ADDR};
-    use crate::se::symbolic_analysis::{ParityInfo, CONFIG};
+    use crate::se::symbolic_analysis::CONFIG;
     use crate::test_helpers::{generate_test_graph, generate_test_state};
 
     //  This "unit" test is terribly designed, it tests way to much...
@@ -760,38 +753,5 @@ mod tests {
         ));
 
         assert_eq!(correct, constraints);
-    }
-
-    #[test]
-    #[ignore]
-    fn parity_call_ops_test() {
-        let ip = env::var("PARITY_IP").unwrap();
-        // init global config with parity
-        let parity = ParityInfo(ip, 8545, BlockSelector::Specific(6281955));
-        CONFIG.write().unwrap().parity = Some(parity);
-
-        let state = generate_test_graph(vec![]).get_state_by_id(1).clone();
-        let addr = const_u256(
-            U256::from_dec_str("228723907117702717599418931794880362350572260118").unwrap(),
-        );
-
-        let res = call_op(&addr, state, false, |to, addr, id, s| {
-            assert_eq!(to, addr);
-            let mut res = s.fork();
-            {
-                let balance = Arc::clone(&res.env.get_account(&id).balance);
-                res.push_constraint(add(&var("dummy"), &balance));
-            }
-            Some(vec![(res, edge_terminal())])
-        });
-
-        let correct = add(
-            &var("dummy"),
-            &const_u256(U256::from_dec_str("1538423056629367645420298").unwrap()),
-        );
-        let balance = Arc::clone(&res[0].0.constraints[0]);
-        assert_eq!(correct, balance);
-
-        CONFIG.write().unwrap().parity = None;
     }
 }

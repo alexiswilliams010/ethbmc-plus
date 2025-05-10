@@ -49,15 +49,7 @@ pub fn ext_code_copy(s: &SeState) -> Vec<(SeState, EdgeType)> {
             let acc = if let Some(acc) = s.env.try_get_account_by_addr(&addr) {
                 acc
             } else {
-                let memory = Arc::make_mut(&mut res.memory);
-                let maybe_id =
-                    Arc::make_mut(&mut res.env).try_load_account_from_chain(memory, &addr);
-                if maybe_id.is_none() {
-                    // we could copy from an symbolic array here
-                    warn!("Unsupported symbolic ext code copy, dropping path!");
-                    return vec![];
-                }
-                res.env.get_account(&maybe_id.unwrap())
+                return vec![];
             };
 
             code = acc.code().cloned().unwrap(); // this is super inefficient but w/e

@@ -18,7 +18,6 @@ extern crate ena;
 extern crate evmexec;
 extern crate hexdecode;
 extern crate num_cpus;
-extern crate parity_connector;
 extern crate petgraph;
 extern crate rand;
 extern crate rayon;
@@ -41,7 +40,6 @@ use std::{
 };
 
 use clap::{App, Arg};
-use parity_connector::BlockSelector;
 use rayon::prelude::*;
 use time::PreciseTime;
 
@@ -54,7 +52,7 @@ use crate::se::{
 pub use crate::se::{
     env::{self, Env, SeEnviroment},
     expr::solver::{create_pool, SolverPool, Solvers},
-    symbolic_analysis::{Attack, AttackType, ExplorationResult, ParityInfo, SeConfig, CONFIG},
+    symbolic_analysis::{Attack, AttackType, ExplorationResult, SeConfig, CONFIG},
     symbolic_state::{Flags, ResultState},
 };
 
@@ -249,8 +247,6 @@ pub fn arguments<'a>(app: App<'a, 'a>) -> App<'a, 'a> {
         .arg(Arg::with_name("no_verify").long("no-verify").help("Skip verification phase."))
         .arg(Arg::with_name("symbolic_storage").long("symbolic-storage").help("Use symbolic storage mode."))
         .arg(Arg::with_name("dump-solver").long("dump-solver").help("Dump all solver queries to ./queries"))
-        .arg(Arg::with_name("ip").long("ip").takes_value(true).help("The ip of a running node."))
-        .arg(Arg::with_name("port").long("port").takes_value(true).help("The port of a running node."))
 }
 
 pub fn set_global_config(matches: &clap::ArgMatches) {
@@ -297,22 +293,6 @@ pub fn set_global_config(matches: &clap::ArgMatches) {
         config.disable_optimizations = true;
         config.arithmetic_simplification = false;
         config.concrete_load = false;
-    }
-    let blocknumber = if let Some(b) = matches.value_of("block") {
-        BlockSelector::Specific(b.parse().expect("Could not parse blocknumber"))
-    } else {
-        BlockSelector::Latest
-    };
-    match (matches.value_of("ip"), matches.value_of("port")) {
-        (Some(ip), Some(port)) => {
-            let port = port.parse().expect("Incorrect port supplied!");
-            config.parity = Some(ParityInfo(ip.to_string(), port, blocknumber));
-        }
-        (Some(ip), None) => {
-            let port = 8545;
-            config.parity = Some(ParityInfo(ip.to_string(), port, blocknumber));
-        }
-        _ => {}
     }
     debug!("Using {:?} for analysis", config);
 }
