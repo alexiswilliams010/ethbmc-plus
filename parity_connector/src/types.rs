@@ -24,8 +24,8 @@ impl Serialize for BlockSelector {
     }
 }
 
-/// A rust representation of an ethereum block, reduced to the fields used by ethAEG
 implement_return_struct!(
+    // A rust representation of an ethereum block, reduced to the fields used by ethAEG
     #[serde(rename_all = "camelCase")]
     pub struct Block {
         gas_limit: WU256,

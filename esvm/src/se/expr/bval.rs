@@ -80,11 +80,11 @@ pub enum Val256 {
 pub trait BitVec {
     fn val(&self) -> &Val256;
 
-    fn get_size(_: &Arc<Self>) -> usize;
-    fn as_bigint(_: &Arc<Self>) -> Option<U256>;
-    fn as_const8(_: &Arc<Self>) -> Option<BVal>;
+    fn get_size(val: &Arc<Self>) -> usize;
+    fn as_bigint(val: &Arc<Self>) -> Option<U256>;
+    fn as_const8(val: &Arc<Self>) -> Option<BVal>;
 
-    fn simplified(_: &Arc<Self>) -> Arc<Self>;
+    fn simplified(val: &Arc<Self>) -> Arc<Self>;
 
     fn can_be_subexpr(&self) -> bool {
         match self.val() {
@@ -103,12 +103,16 @@ pub trait BitVec {
         })
     }
 
+    // SIROCCO: unused function, comment out for now
+    /*
     fn is_tautology(val: &Arc<Self>) -> bool {
         match BitVec::check_truth(val) {
             SymbolicTruth::True => true,
             _ => false,
         }
     }
+    */
+
     fn check_truth(val: &Arc<Self>) -> SymbolicTruth {
         if let Some(v) = BitVec::as_bigint(val) {
             if v != U256::zero() {
@@ -146,9 +150,10 @@ impl Hash for FVal {
             self.val.hash(&mut hasher);
             let hash = hasher.finish();
             *self.cached_hash.write().unwrap() = Some(hash);
-            return hash.hash(state);
+            hash.hash(state);
+        } else {
+            self.cached_hash.read().unwrap().unwrap().hash(state);
         }
-        self.cached_hash.read().unwrap().unwrap().hash(state)
     }
 }
 
@@ -171,21 +176,21 @@ impl BitVec for FVal {
         &self.val
     }
 
-    fn get_size(val: &BVal) -> usize {
+    fn get_size(val: &Arc<Self>) -> usize {
         match val.val {
             Val256::FMLoad(..) | Val256::FConst8(..) | Val256::FByteExtract(..) => 8,
             _ => 256,
         }
     }
 
-    fn as_bigint(val: &BVal) -> Option<U256> {
+    fn as_bigint(val: &Arc<Self>) -> Option<U256> {
         match FVal::simplified(val).val {
             Val256::FConst(ref uint) | Val256::FConst8(ref uint) => Some(*uint),
             _ => None,
         }
     }
 
-    fn as_const8(val: &BVal) -> Option<BVal> {
+    fn as_const8(val: &Arc<Self>) -> Option<BVal> {
         let v = FVal::simplified(val);
         if let Val256::FConst8(_) = v.val {
             return Some(v);
@@ -198,7 +203,7 @@ impl BitVec for FVal {
         None
     }
 
-    fn simplified(val: &BVal) -> BVal {
+    fn simplified(val: &Arc<Self>) -> Arc<Self> {
         if val.memory_val() {
             Arc::clone(val)
         } else {
@@ -1820,8 +1825,8 @@ mod tests {
 
         b.iter(|| {
             let mut hasher = DefaultHasher::new();
-            black_box(load.hash(&mut hasher));
-            hasher.finish();
+            load.hash(&mut hasher);
+            black_box(hasher.finish()); // SIROCCO: we don't use the return value
         });
     }
 }

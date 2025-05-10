@@ -591,7 +591,7 @@ impl SeState {
         }
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(many_single_char_names))]
+    #[cfg_attr(clippy, allow(clippy::many_single_char_names))]
     pub fn pop6(&mut self) -> Option<(BVal, BVal, BVal, BVal, BVal, BVal)> {
         match (
             self.stack.pop(),
@@ -605,7 +605,7 @@ impl SeState {
             _ => None,
         }
     }
-    #[cfg_attr(feature = "cargo-clippy", allow(many_single_char_names))]
+    #[cfg_attr(clippy, allow(clippy::many_single_char_names))]
     pub fn pop7(&mut self) -> Option<(BVal, BVal, BVal, BVal, BVal, BVal, BVal)> {
         match (
             self.stack.pop(),

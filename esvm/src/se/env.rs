@@ -205,7 +205,7 @@ impl SeEnviroment {
                 // parse storage
                 if !s["storage"].is_badvalue() {
                     let mut initial_storage = Vec::new();
-                    let mut account = env.get_account_mut(&id);
+                    let account = env.get_account_mut(&id);
                     for (addr, val) in s["storage"].as_hash().unwrap() {
                         let addr = parse_yaml_value(&addr);
                         let val = parse_yaml_value(&val);
@@ -223,7 +223,7 @@ impl SeEnviroment {
                 // check if owner index is suplied
                 if !s["owner"].is_badvalue() {
                     let index = parse_yaml_value(&s["owner"]);
-                    let mut account = env.get_account_mut(&id);
+                    let account = env.get_account_mut(&id);
                     account.owner = Some(index);
                 }
             } else {
@@ -687,7 +687,7 @@ impl Env {
         tx_id
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(clippy::too_many_arguments))]
+    #[cfg_attr(clippy, allow(clippy::too_many_arguments))]
     pub fn new_output_tx(
         &mut self,
         memory: &mut SymbolicMemory,
@@ -887,7 +887,7 @@ impl Transaction {
         }
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(clippy::too_many_arguments))]
+    #[cfg_attr(clippy, allow(clippy::too_many_arguments))]
     fn new_outgoing(
         memory: &mut SymbolicMemory,
         id: TxId,

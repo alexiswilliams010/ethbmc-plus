@@ -251,12 +251,12 @@ impl<'a> SmtLib2Builder<'a> {
         self.assert(&b);
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(clippy::wrong_self_convention))]
+    #[cfg_attr(clippy, allow(clippy::wrong_self_convention))]
     fn to_bool(&mut self, v: &BVal, size: usize) -> String {
         optimize_bool_conversion(format!("(distinct {} (_ bv0 {}))", self.to_smt(v), size))
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(clippy::wrong_self_convention))]
+    #[cfg_attr(clippy, allow(clippy::wrong_self_convention))]
     fn from_bool(&mut self, val: &str, size: usize) -> String {
         format!("(ite {} (_ bv1 {}) (_ bv0 {}))", val, size, size)
     }
@@ -274,7 +274,7 @@ impl<'a> SmtLib2Builder<'a> {
         name.into()
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(clippy::wrong_self_convention))]
+    #[cfg_attr(clippy, allow(clippy::wrong_self_convention))]
     pub fn to_smt(&mut self, val: &BVal) -> String {
         if let Some(str) = self.subexpr.get(val) {
             return str.clone();

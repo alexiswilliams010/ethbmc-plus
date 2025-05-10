@@ -173,7 +173,7 @@ impl SolverPool {
     pub fn solver_handle(&self) -> SolverHandle {
         let worker = self.retrieve_worker();
 
-        let mut handle = SolverHandle {
+        let handle = SolverHandle {
             worker: worker,
             pool: self,
         };
@@ -183,7 +183,7 @@ impl SolverPool {
 
 #[cfg(test)]
 mod tests {
-    use super::{yice_pool_with_workers, SolverPool};
+    use super::yice_pool_with_workers;
 
     const TEST_TIMEOUT: usize = 120;
 
@@ -197,8 +197,8 @@ mod tests {
         (assert (= a b))",
         );
 
-        let mut pool = yice_pool_with_workers(5, TEST_TIMEOUT);
-        for i in 0..10 {
+        let pool = yice_pool_with_workers(5, TEST_TIMEOUT);
+        for _ in 0..10 {
             let mut handle = pool.solver_handle();
             {
                 let mut yice = handle.worker.take().unwrap();

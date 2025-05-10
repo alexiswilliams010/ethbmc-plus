@@ -2,16 +2,13 @@ use std::sync::Arc;
 
 use uint::U256;
 
-use crate::{
-    se::{
+use crate::se::{
         env::fresh_var_name,
         expr::bval::*,
         expr::symbolic_memory::{self, *},
         symbolic_edge::*,
         symbolic_state::{Flags, HaltingReason, SeState},
-    },
-    CONFIG,
-};
+    };
 
 pub fn code_copy(s: &SeState) -> Vec<(SeState, EdgeType)> {
     let mut res = s.create_succ();

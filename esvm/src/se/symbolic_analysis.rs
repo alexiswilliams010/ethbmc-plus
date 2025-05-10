@@ -662,7 +662,7 @@ impl Analysis {
         // Updating geth genesis w/ counterexample generated values
         if state.context.config().symbolic_storage {
             for upd in attack_data[0].storage_upd.iter() {
-                genesis.update_account_storage(&upd.account, upd.addr.clone(), upd.value.clone());
+                genesis.update_account_storage(&upd.account, upd.addr.clone(), upd.value.clone()).ok()?;
             }
         }
 

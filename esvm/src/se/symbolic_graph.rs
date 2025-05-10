@@ -56,7 +56,7 @@ impl TransitionWorker {
                         let input_state = msg.unwrap(); // channel does not close
                         let transitions = symbolic_step(&input_state);
                         let res = Transition::new(input_state.id, transitions);
-                        output.send(res);
+                        output.send(res).unwrap();
                     },
                     // closing signal, shut down worker
                     recv(kill_switch) -> msg => {
@@ -95,7 +95,7 @@ impl SolverWorker {
                             };
                             res.push(  ((state, edge),  check) );
                         }
-                        output.send(SolverOutput{ id: input.id, transitions: res});
+                        output.send(SolverOutput{ id: input.id, transitions: res}).unwrap();
                     },
                     // closing signal, shut down worker
                     recv(kill_switch) -> msg => {
@@ -175,7 +175,7 @@ macro_rules! handle_transitions {
 
         // handle easy cases first
         if !simple.is_empty() {
-            $self.solver_not_needed.sender.send(($next_id, simple));
+            $self.solver_not_needed.sender.send(($next_id, simple)).unwrap();
             $self.being_processed.fetch_add(1, Ordering::SeqCst);
         }
 
@@ -184,7 +184,7 @@ macro_rules! handle_transitions {
             $self.solver_needed_input.sender.send(SolverInput {
                 id: $next_id,
                 transitions: conditional,
-            });
+            }).unwrap();
             $self.being_processed.fetch_add(1, Ordering::SeqCst);
         }
     };
@@ -310,7 +310,7 @@ impl SymbolicGraph {
                     if symbolic_executor::expensive_computation(&next_state) {
                         debug!("Sending expensive computation to thread");
                         being_processed.fetch_add(1, Ordering::SeqCst);
-                        transition_input_sender.send(next_state);
+                        transition_input_sender.send(next_state).unwrap();
                         continue;
                     }
 
@@ -328,7 +328,7 @@ impl SymbolicGraph {
 
                     // handle easy cases first
                     if !simple.is_empty() {
-                        solver_not_needed_sender.send((next_id, simple));
+                        solver_not_needed_sender.send((next_id, simple)).unwrap();
                         being_processed.fetch_add(1, Ordering::SeqCst);
                     }
 
@@ -337,7 +337,7 @@ impl SymbolicGraph {
                         solver_needed_input_sender.send(SolverInput {
                             id: next_id,
                             transitions: conditional,
-                        });
+                        }).unwrap();
                         being_processed.fetch_add(1, Ordering::SeqCst);
                     }
                 } else if being_processed.load(Ordering::SeqCst) == 0

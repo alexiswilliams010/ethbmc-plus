@@ -1,6 +1,5 @@
 use std::{
     collections::hash_map::DefaultHasher,
-    error::Error,
     fs::File,
     hash::{Hash, Hasher},
     io::{prelude::*, BufReader, Write},
@@ -152,6 +151,8 @@ impl Z3Instance {
     }
 
     // this will reset z3 since we can not control asserts/defs
+    /*
+    SIROCCO: unused function, comment out for now
     #[cfg(test)]
     fn check_formula(&mut self, formula: &str) -> bool {
         self.reset();
@@ -161,6 +162,7 @@ impl Z3Instance {
         self.reset();
         res
     }
+    */
 
     fn values_as_dec(&mut self) {
         if self.values_as_dec {

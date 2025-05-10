@@ -3,7 +3,7 @@ use std::{
     io::{self, prelude::*, BufReader, Read},
 };
 
-use ethereum_newtypes::{Address, Bytes, Hash, WU256};
+use ethereum_newtypes::{Address, Bytes, WU256};
 use log::debug;
 use subprocess::{Exec, Redirection};
 use tempfile::TempPath;
@@ -223,7 +223,7 @@ impl Execution {
 
 #[derive(Debug, Deserialize)]
 pub struct State {
-    root: Hash,
+    // root: Hash, // SIROCCO: is this supposed to be used somewhere?
     accounts: HashMap<Address, Account>,
 }
 
