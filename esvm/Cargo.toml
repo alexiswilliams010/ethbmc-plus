@@ -5,8 +5,6 @@ authors = [""]
 edition = "2018"
 
 [dependencies]
-rocket = "0.4.0"
-rocket_contrib = "0.4.0"
 reqwest = "0.9.4"
 rayon = "1.0.2"
 lazy_static = "1.1.0"
@@ -45,14 +43,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "ethbmc"
 path = "src/main.rs"
-
-[[bin]]
-name = "ethbmc-scheduler"
-path = "bin/scheduler.rs"
-
-[[bin]]
-name = "ethbmc-service"
-path = "bin/service.rs"
 
 [dev-dependencies]
 contracts = { path = "contracts" }

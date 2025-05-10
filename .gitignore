@@ -16,3 +16,5 @@ Cargo.lock
 /log/
 
 .DS_store
+
+binaries/
