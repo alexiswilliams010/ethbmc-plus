@@ -1,11 +1,14 @@
 extern crate clap;
 extern crate parity_connector;
-extern crate uint;
 
-use clap::{App, Arg, ArgMatches};
-use parity_connector::{create_client, BlockSelector};
-use uint::U256;
+// use clap::{App, Arg, ArgMatches};
+// use parity_connector::{create_client, BlockSelector};
+// use revm::primitives::U256;
 
+fn main() {
+}
+
+/*
 fn main() {
     let matches = parse_args();
 
@@ -61,3 +64,4 @@ fn parse_args<'a>() -> ArgMatches<'a> {
         )
         .get_matches()
 }
+*/

@@ -8,6 +8,8 @@ use std::sync::{Arc, RwLock};
 use tiny_keccak::keccak256;
 use uint::U256;
 
+use revm::primitives::U256 as RevmU256;
+
 use crate::se::env::fresh_var_name;
 use crate::se::expr::symbolic_memory::{MVal, MemoryOperation, MemoryType, SymbolicMemory};
 use crate::se::symbolic_analysis::CONFIG;
@@ -83,6 +85,7 @@ pub trait BitVec {
     fn get_size(val: &Arc<Self>) -> usize;
     fn as_bigint(val: &Arc<Self>) -> Option<U256>;
     fn as_const8(val: &Arc<Self>) -> Option<BVal>;
+    fn as_revm_u256(val: &Arc<Self>) -> Option<RevmU256>;
 
     fn simplified(val: &Arc<Self>) -> Arc<Self>;
 
@@ -103,7 +106,7 @@ pub trait BitVec {
         })
     }
 
-    // SIROCCO: unused function, comment out for now
+    // Unused function, comment out for now
     /*
     fn is_tautology(val: &Arc<Self>) -> bool {
         match BitVec::check_truth(val) {
@@ -188,6 +191,12 @@ impl BitVec for FVal {
             Val256::FConst(ref uint) | Val256::FConst8(ref uint) => Some(*uint),
             _ => None,
         }
+    }
+
+    fn as_revm_u256(val: &Arc<Self>) -> Option<RevmU256> {
+        let value_str = FVal::as_bigint(val)?.to_string();
+        let revm_index = revm::primitives::U256::from_str_radix(&value_str, 10).unwrap();
+        Some(revm_index)
     }
 
     fn as_const8(val: &Arc<Self>) -> Option<BVal> {
@@ -1826,7 +1835,7 @@ mod tests {
         b.iter(|| {
             let mut hasher = DefaultHasher::new();
             load.hash(&mut hasher);
-            black_box(hasher.finish()); // SIROCCO: we don't use the return value
+            black_box(hasher.finish()); // We don't use the return value
         });
     }
 }

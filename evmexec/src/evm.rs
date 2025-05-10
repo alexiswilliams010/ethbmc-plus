@@ -1,122 +1,156 @@
-use std::{
-    collections::HashMap,
-    io::{self, prelude::*, BufReader, Read},
+use revm::{
+    bytecode::Bytecode, database::{CacheDB, EmptyDB},
+    inspector::inspectors::TracerEip3155,
+    primitives::{Address, Bytes, TxKind, U256, HashMap},
+    state::{Account, AccountInfo},
+    Context,
+    InspectCommitEvm,
+    MainBuilder,
+    MainContext,
 };
 
-use ethereum_newtypes::{Address, Bytes, WU256};
-use log::debug;
-use subprocess::{Exec, Redirection};
-use tempfile::TempPath;
+use crate::genesis::Genesis;
+use crate::evmtrace::{ContextParser, InstructionContext};
+use crate::Error;
+use std::io::{Write, BufRead};
+use std::cell::RefCell;
+use std::rc::Rc;
 
-use crate::{
-    evmtrace::{ContextParser, Instruction, InstructionContext},
-    genesis::{Account, Genesis},
-};
+#[derive(Debug, Clone)]
+struct FlushWriter {
+    buffer: Rc<RefCell<Vec<u8>>>,
+    flushed: Rc<RefCell<bool>>,
+}
 
-/// A struct to hold the evm information
+impl FlushWriter {
+    fn new() -> Self {
+        Self { 
+            buffer: Rc::new(RefCell::new(Vec::new())),
+            flushed: Rc::new(RefCell::new(false)),
+        }
+    }
+
+    fn get_buffer(&mut self) -> String {
+        // Ensure data is flushed before returning
+        self.flush().unwrap();
+        String::from_utf8_lossy(&self.buffer.borrow()).to_string()
+    }
+}
+
+impl Write for FlushWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.buffer.borrow_mut().extend_from_slice(buf);
+        *self.flushed.borrow_mut() = false;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if !*self.flushed.borrow() {
+            // Here we could do additional processing if needed
+            // For now, we just mark as flushed
+            *self.flushed.borrow_mut() = true;
+        }
+        Ok(())
+    }
+}
+
 pub struct Evm {
-    /// The Genesis file for the current execution
+    pub db: CacheDB<EmptyDB>,
+    // We don't need really need to use a Genesis but will use it to update the CacheDB for now
+    // TODO: Eventually the the symbolic analysis will be migrated to all Revm types
     pub genesis: Genesis,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EvmInput {
     pub input_data: Bytes,
     pub sender: Address,
     pub receiver: Address,
     pub gas: u32,
-    pub value: WU256,
-}
-
-impl Default for Evm {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl From<Genesis> for Evm {
-    fn from(genesis: Genesis) -> Self {
-        Self { genesis }
-    }
+    pub value: U256,
 }
 
 impl Evm {
-    pub fn new() -> Self {
-        let genesis = Genesis::new();
-        Self { genesis }
-    }
-
-    pub fn execute(self, input: EvmInput) -> Execution {
-        let res = self.execute_input(&input);
-        Execution {
-            genesis: self.genesis,
-            input,
-            result: res,
+    pub fn new(genesis: Genesis) -> Self {
+        Self {
+            db: CacheDB::new(EmptyDB::default()),
+            genesis: genesis,
         }
     }
 
-    fn execute_input(&self, input: &EvmInput) -> Result<ExecutionResult, crate::Error> {
-        let (output, _path) = self.execute_vm(input)?;
-        self.parse_trace(output, input.receiver.clone())
+        pub fn execute(&mut self, input: EvmInput) -> Result<EvmResult, Error> {
+        // Peek into the nonce of the sender from the loaded CacheDB so it can be added to the tx
+        let nonce = self.db.load_account(input.sender).map_or(0, |acc| acc.info.nonce);
+
+        // Create a new writer to capture the trace of the execution
+        let mut writer = FlushWriter::new();
+
+        // Setup the EVM from the stored CacheDB and modify the transaction to include the input data
+        let mut evm = Context::mainnet()
+            .with_db(&mut self.db)
+            .modify_tx_chained(|tx| {
+                tx.caller = input.sender;
+                tx.kind = TxKind::Call(input.receiver);
+                tx.data = input.input_data.clone();
+                tx.value = input.value;
+                tx.gas_limit = input.gas as u64;
+                tx.nonce = nonce;
+            })
+            .build_mainnet()
+            // Set an inspector to capture the trace of the execution
+            .with_inspector(TracerEip3155::new(Box::new(writer.clone()))
+            .without_summary()
+            .with_memory());
+
+        // Execute the transaction and commit the changes back to the CacheDB
+        let result = evm.inspect_replay_commit().unwrap();
+        println!("result: {:?}", result);
+        let trace = writer.get_buffer();
+
+        // Parse the trace into a Vec<InstructionContext>
+        let instructions = Evm::parse_trace(trace, input.receiver);
+
+        Ok(EvmResult {
+            genesis: self.genesis.clone(),
+            input: input,
+            result: ExecutionResult {
+                trace: instructions,
+                new_state: State::default(),
+            },
+        })
     }
 
-    fn execute_vm(
-        &self,
-        input: &EvmInput,
-    ) -> Result<(BufReader<Box<dyn Read>>, TempPath), crate::Error> {
-        let path = self.genesis.export()?.into_temp_path();
-        let args = [
-            "--verbosity",
-            "0",
-            "run",
-            "--prestate",
-            path.to_str()
-                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
-            "--gas",
-            &format!("{}", input.gas),
-            "--sender",
-            &format!("{:x}", input.sender),
-            "--receiver",
-            &format!("{:x}", input.receiver),
-            "--value",
-            &format!("{:x}", input.value),
-            "--input",
-            &encode(&input.input_data.as_slice(), &Prefixed::No),
-            "--json",
-            "--dump",
-            "--nomemory=false",
-            "--noreturndata=false",
-        ];
+    pub fn update_state_from_genesis(&mut self) {
+        // Update the CacheDB using the AccountInfo in the provided genesis
+        for (addr, acc_state) in self.genesis.alloc.iter() {
+            let mut info = AccountInfo::default();
 
-        if cfg!(feature = "verbose") {
-            let mut debug = String::new();
-            for arg in &args {
-                debug.push_str(&format!(" {}", arg));
+            // Set code if not empty
+            if !acc_state.code.is_empty() {
+                info = info.with_code(Bytecode::new_raw(acc_state.code.clone()));
             }
-            debug!("Starting evm with arguments: {:x?}", debug);
-        }
 
-        let read_handle = match Exec::cmd("evm")
-            .args(&args)
-            .stderr(Redirection::Merge) // redirect err output to stdout
-            .stream_stdout()
-        {
-            Err(why) => panic!("couldn't spawn evm: {:?}", why),
-            Ok(process) => process,
-        };
-        // also return the path object to ensure the temporary file does not get dropped until the
-        // output of the exeution is read
-        Ok((BufReader::new(Box::new(read_handle)), path))
+            // Convert balance from WU256 to U256
+            info = info.with_balance(acc_state.balance);
+
+            // Convert nonce from WU256 to u64
+            info = info.with_nonce(acc_state.nonce.try_into().unwrap());
+
+            // Convert address and insert the AccountInfo into the CacheDB
+            self.db.insert_account_info(*addr, info);
+
+            // For each storage slot, insert into the CacheDB
+            for (slot, value) in acc_state.storage.iter() {
+                self.db.insert_account_storage(*addr, *slot, *value).unwrap();
+            }
+        }
     }
 
-    fn parse_trace(
-        &self,
-        mut reader: BufReader<Box<dyn Read>>,
-        receiver: Address,
-    ) -> Result<ExecutionResult, crate::Error> {
+    pub fn parse_trace(trace: String, receiver: Address) -> Vec<InstructionContext> {
         let mut buf = String::new();
         let mut instructions = Vec::new();
         let mut parser = ContextParser::new(receiver);
+        let mut reader = std::io::Cursor::new(trace);
 
         while let Ok(d) = reader.read_line(&mut buf) {
             // end of stream
@@ -124,16 +158,10 @@ impl Evm {
                 break;
             }
             if buf.contains("Fatal") {
-                return Err(crate::Error::custom(format!(
-                    "Could not fetch evm output: {}",
-                    buf,
-                )));
+                panic!("Could not fetch evm output: {}", buf);
             }
 
-            // detect end of the trace
-            if buf.contains("output") {
-                break;
-            } else if let Some(ins) = parser.parse_trace_line(&buf) {
+            if let Some(ins) = parser.parse_trace_line(&buf) {
                 instructions.push(ins);
             }
 
@@ -141,196 +169,156 @@ impl Evm {
             buf.clear();
         }
 
-        let new_state = if cfg!(feature = "verbose") {
-            buf.clear();
-            while let Ok(d) = reader.read_line(&mut buf) {
-                if d == 0 {
-                    break;
-                }
-            }
-            let state = serde_json::from_str(&buf);
-            if state.is_err() {
-                eprintln!("Error during parsing new state:\n{}\n{:?}", buf, state);
-            } else {
-                debug!("New state after tx execution:\n{:?}", state)
-            }
-            state
-        } else {
-            serde_json::from_reader(reader)
-        };
-
-        Ok(ExecutionResult {
-            trace: instructions,
-            new_state: new_state?,
-        })
+        instructions
     }
 }
 
-#[derive(Debug)]
-pub struct Execution {
+pub struct EvmResult {
     pub genesis: Genesis,
     pub input: EvmInput,
-    pub result: Result<ExecutionResult, crate::Error>,
+    pub result: ExecutionResult,
 }
 
-impl Execution {
-    /// Transforms the Execution into a new evm to be executed
-    pub fn into_evm(self) -> Evm {
-        Evm {
-            genesis: self.genesis,
-        }
-    }
-
-    /// Updates the environment based on the execution result, returns an error if the execution did not
-    /// succeed
-    pub fn into_evm_updated(mut self) -> Result<Evm, crate::Error> {
-        let res = self.result?;
-
-        for InstructionContext {
-            executed_on,
-            instruction,
-        } in res.trace
-        {
-            if let Instruction::SStore { addr, value } = instruction {
-                self.genesis
-                    .update_account_storage(&executed_on, addr, value)?;
-            }
-        }
-
-        // jsut overwrite, we have to iterate each account anyway
-        for (addr, acc_state) in res.new_state.accounts {
-            if let Some(acc) = self.genesis.alloc.get_mut(&addr) {
-                acc.balance = acc_state.balance;
-            } else {
-                // new account created during execution
-                self.genesis.add_account(addr, acc_state);
-            }
-        }
-
-        self.genesis
-            .alloc
-            .get_mut(&self.input.sender)
-            .ok_or_else(|| {
-                crate::Error::custom("Could not find sender for nonce update".to_string())
-            })?
-            .nonce += 1.into();
-
-        Ok(Evm {
-            genesis: self.genesis,
-        })
-    }
-
-    pub fn is_err(&self) -> bool {
-        self.result.is_err()
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct State {
-    // root: Hash, // SIROCCO: is this supposed to be used somewhere?
-    accounts: HashMap<Address, Account>,
-}
-
-#[derive(Debug)]
 pub struct ExecutionResult {
     pub trace: Vec<InstructionContext>,
     pub new_state: State,
 }
 
-// I just want a named boolean
-pub enum Prefixed {
-    Yes,
-    No,
-}
-
-pub fn encode(input: &[u8], prefixed: &Prefixed) -> String {
-    let mut s = String::with_capacity((input.len() * 2) + 2);
-    if let Prefixed::Yes = prefixed {
-        s.push_str("0x");
-    }
-    for byte in input {
-        s.push_str(&format!("{:0>2x}", byte));
-    }
-    s
+#[derive(Debug, Clone, Default)]
+pub struct State {
+    pub accounts: HashMap<Address, Account>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
+    use maplit::hashmap;
+    use revm::Database;
+    use crate::genesis::{Genesis, Account as GenesisAccount};
 
-    use crate::{evmtrace::Instruction, genesis::Account};
-    use ethereum_newtypes::WU256;
-    use std::rc::Rc;
-
-    #[test]
-    fn vm_execution() {
-        let result = execute_test_case()
-            .result
-            .expect("Detected error while executing evm");
-        let writes = vec![InstructionContext {
-            executed_on: Rc::new("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9".into()),
-            instruction: Instruction::SStore {
-                addr: 0.into(),
-                value: "0xDFA72DE72F96CF5B127B070E90D68EC9710797C".into(),
-            },
-        }];
-        assert_eq!(writes, result.trace);
-    }
-
-    #[test]
-    fn vm_update_state() {
-        let update = execute_test_case()
-            .into_evm_updated()
-            .expect("Error while updating file");
-        assert_eq!(
-            update.genesis.alloc[&"0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9".into()].storage
-                [&0.into()],
-            WU256::from("0xDFA72DE72F96CF5B127B070E90D68EC9710797C"),
-        );
-    }
-
-    // see https://github.com/ethereum/go-ethereum/issues/17969
-    #[test]
-    fn deseriaize_malformed_account() {
-        let bytes = include_bytes!("../tests/files/corrupted_geth.json");
-        let state: State = serde_json::from_slice(bytes).unwrap();
-        assert_eq!(
-            state.accounts[&WU256::from("0xccfaee7dd7e330960d5241a980415cc94dbe59a4").into()]
-                .storage,
-            HashMap::new()
-        );
-    }
-
-    fn execute_test_case() -> Execution {
-        let mut evm = Evm::new();
-
-        evm.genesis.add_account(
-            "0x0dfa72de72f96cf5b127b070e90d68ec9710797c".into(),
-            Account::new(0x10.into(), None, 0x2.into(), None),
+    fn setup_evm() -> Evm {
+        let mut genesis = Genesis::new();
+        genesis.add_account(
+            Address::from_str("0x0dfa72de72f96cf5b127b070e90d68ec9710797c").unwrap(),
+            GenesisAccount::new(U256::from(0), None, U256::from(1), None),
         );
 
         let code = hexdecode::decode("60806040526004361061004b5763ffffffff7c01000000000000000000000000000000000000000000000000000000006000350416637c52e3258114610050578063e9ca826c14610080575b600080fd5b34801561005c57600080fd5b5061007e73ffffffffffffffffffffffffffffffffffffffff60043516610095565b005b34801561008c57600080fd5b5061007e610145565b60005473ffffffffffffffffffffffffffffffffffffffff1633146100b657fe5b600154604080517f338ccd7800000000000000000000000000000000000000000000000000000000815273ffffffffffffffffffffffffffffffffffffffff84811660048301529151919092169163338ccd7891602480830192600092919082900301818387803b15801561012a57600080fd5b505af115801561013e573d6000803e3d6000fd5b5050505050565b6000805473ffffffffffffffffffffffffffffffffffffffff1916331790555600a165627a7a72305820b376cbf41ad45cba2c20890893f93f24efe850bf7eaf35fd12a0474576b4ac2d0029".as_bytes()).expect("Could not parse code array");
-        evm.genesis.add_account(
-            "0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9".into(),
-            Account::new(
-                0x0.into(),
+        genesis.add_account(
+            Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap(),
+            GenesisAccount::new(
+                U256::from(0),
                 Some(code.into()),
-                0x1.into(),
-                Some(hashmap! {
-                    0x0.into() => "0xdfa72de72f96cf5b127b070e90d68ec9710797c".into(),
-                    0x1.into() => "0x6c249452ee469d839942e05b8492dbb9f9c70ac".into(),
+                U256::from(1),
+                Some(hashmap!{
+                    U256::from(0) => U256::from(0),
+                    U256::from(1) => U256::from_str_radix("06c249452ee469d839942e05b8492dbb9f9c70ac", 16).unwrap(),
                 }),
             ),
         );
 
-        let data = Bytes::from_hex_str("0xe9ca826c000000").expect("Could not parse input");
+        let code = hexdecode::decode("0x606060405260043610603e5763ffffffff7c0100000000000000000000000000000000000000000000000000000000600035041663338ccd7881146043575b600080fd5b3415604d57600080fd5b606c73ffffffffffffffffffffffffffffffffffffffff60043516606e565b005b6000543373ffffffffffffffffffffffffffffffffffffffff908116911614609257fe5b8073ffffffffffffffffffffffffffffffffffffffff166108fc3073ffffffffffffffffffffffffffffffffffffffff16319081150290604051600060405180830381858888f19350505050151560e857600080fd5b505600a165627a7a72305820d94e263975863b2024dc4bfaba0287941709bc576381ae567f9683d8fc2052940029".as_bytes()).expect("Could not parse code array");
+        genesis.add_account(
+            Address::from_str("0x06c249452ee469d839942e05b8492dbb9f9c70ac").unwrap(),
+            GenesisAccount::new(
+                U256::from_str_radix("AABBCCDD", 16).unwrap(),
+                Some(code.into()),
+                U256::from(1),
+                Some(hashmap!{
+                    U256::from(0) => U256::from_str_radix("0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9", 16).unwrap(),
+                }),
+            ),
+        );
+
+        let mut evm = Evm::new(genesis);
+        // Fold the genesis state into the CacheDB of the Evm instance
+        evm.update_state_from_genesis();
+        evm
+    }
+
+    #[test]
+    fn multiple_transactions_test() {
+        // Setup the EVM from the genesis state
+        let mut evm = setup_evm();
         let input = EvmInput {
-            input_data: data,
-            sender: "0xdfa72de72f96cf5b127b070e90d68ec9710797c".into(),
-            receiver: "0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9".into(),
-            gas: 10_000,
-            value: 0.into(),
+            value: U256::from(0),
+            input_data: Bytes::from_str("e9ca826c000000800001020800000000000000008000000000000000000000001000000000000000000000000000000000000010101010101010100010110001000000000100000001012001010101010208010480082000401800120001080402080082040802001402080408080002004040210011010208202020084001020201040220042000041040000280800202808001018001").expect("Could not parse input"),
+            sender: Address::from_str("0x0dfa72de72f96cf5b127b070e90d68ec9710797c").unwrap(),
+            receiver: Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap(),
+            gas: 100_000,
         };
-        evm.execute(input)
+        evm.execute(input).expect("Could not update evm");
+
+        // check storage overwritten
+        assert_eq!(
+            evm.db.storage(Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap(), U256::from(0)).unwrap(),
+            U256::from_str_radix("dfa72de72f96cf5b127b070e90d68ec9710797c", 16).unwrap()
+        );
+
+        // check values not changed
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x0dfa72de72f96cf5b127b070e90d68ec9710797c").unwrap()).unwrap().info.balance,
+            U256::from(0),
+        );
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap()).unwrap().info.balance,
+            U256::from(0),
+        );
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x06c249452ee469d839942e05b8492dbb9f9c70ac").unwrap()).unwrap().info.balance,
+            U256::from_str_radix("AABBCCDD", 16).unwrap(),
+        );
+
+        // check nonces updated
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x0dfa72de72f96cf5b127b070e90d68ec9710797c").unwrap()).unwrap().info.nonce,
+            2u64,
+        );
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap()).unwrap().info.nonce,
+            1u64,
+        );
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x06c249452ee469d839942e05b8492dbb9f9c70ac").unwrap()).unwrap().info.nonce,
+            1u64,
+        );
+
+        let input = EvmInput {
+            value: U256::from(0),
+            input_data: Bytes::from_str("7c52e3250000000000081000000002000dfa72de72f96cf5b127b070e90d68ec9710797c00000000000000000000000000000000000008000100040008018008204001014010020410080202010408010201010180010101200101010201010240401802040010101010000001008000000000001000000018040000202000010000000001000000").expect("Could not parse input"),
+            sender: Address::from_str("0x0dfa72de72f96cf5b127b070e90d68ec9710797c").unwrap(),
+            receiver: Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap(),
+            gas: 100_000,
+        };
+        evm.execute(input).expect("Could not update evm");
+
+        // check values
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x0dfa72de72f96cf5b127b070e90d68ec9710797c").unwrap()).unwrap().info.balance,
+            U256::from_str_radix("AABBCCDD", 16).unwrap(),
+        );
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap()).unwrap().info.balance,
+            U256::from(0),
+        );
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x06c249452ee469d839942e05b8492dbb9f9c70ac").unwrap()).unwrap().info.balance,
+            U256::from(0),
+        );
+
+        // check nonces updated
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x0dfa72de72f96cf5b127b070e90d68ec9710797c").unwrap()).unwrap().info.nonce,
+            3u64,
+        );
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap()).unwrap().info.nonce,
+            1u64,
+        );
+        assert_eq!(
+            evm.db.load_account(Address::from_str("0x06c249452ee469d839942e05b8492dbb9f9c70ac").unwrap()).unwrap().info.nonce,
+            1u64,
+        );
     }
 }

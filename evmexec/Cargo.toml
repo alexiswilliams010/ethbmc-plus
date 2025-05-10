@@ -14,10 +14,7 @@ hexdecode = "0.2"
 subprocess = "0.1"
 log = "0.4"
 lazy_static = "1.1"
-
-[dependencies.ethereum-newtypes]
-version = "0.1"
-path = "ethereum-newtypes" 
+revm = { version = "22.0.1", features = ["serde", "serde-json"] }
 
 [dependencies.uint]
 version = "0.4"

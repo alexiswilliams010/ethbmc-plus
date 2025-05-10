@@ -971,9 +971,9 @@ impl ConstraintSetSplitter {
 
     fn add_constraint(&mut self, memory: &SymbolicMemory, constraint: &BVal) -> TrackingKey {
         let val = TrackingVariable::bval(constraint);
-        /* SIROCCO: For some reason there is a duplicate constraint in self.constraints, but this logic will not add duplicates.
-                    Because self.constraints_tracker does not also contain the duplicate, a panic occurs in a debug_assert_eq because
-                    the vectors are not the same. Allow duplicates here for now until the duplicate is removed from self.constraints.
+        /* For some reason there is a duplicate constraint in self.constraints, but this logic will not add duplicates.
+           Because self.constraints_tracker does not also contain the duplicate, a panic occurs in a debug_assert_eq because
+           the vectors are not the same. Allow duplicates here for now until the duplicate is removed from self.constraints.
         if let Some(key) = self.mapping.get(&val) {
             return *key;
         }

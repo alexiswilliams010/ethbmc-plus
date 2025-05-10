@@ -152,7 +152,7 @@ impl Z3Instance {
 
     // this will reset z3 since we can not control asserts/defs
     /*
-    SIROCCO: unused function, comment out for now
+        Unused function, comment out for now
     #[cfg(test)]
     fn check_formula(&mut self, formula: &str) -> bool {
         self.reset();

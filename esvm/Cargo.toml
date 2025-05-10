@@ -15,7 +15,6 @@ time = "0.1"
 chrono = "0.4.6"
 petgraph = "0.4.13"
 evmexec = { path = "../evmexec", features = ["verbose"] }
-ethereum-newtypes = { path = "../evmexec/ethereum-newtypes" }
 parity_connector = { path = "../parity_connector" }
 subprocess = "0.1"
 ena = "0.10.1"
@@ -32,6 +31,7 @@ num_cpus = "1.8.0"
 rand = "0.5.5"
 serde_json = "1.0.140"
 parking_lot = "0.7.1"
+revm = { version = "22.0.1", features = ["serde", "serde-json"] }
 
 [dependencies.uint]
 version = "0.4"

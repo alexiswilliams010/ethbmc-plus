@@ -1,23 +1,19 @@
 use std::{
-    collections::HashSet,
-    fmt,
-    fs::File,
-    sync::{
+    collections::HashSet, fmt, fs::File, str::FromStr, sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex, RwLock,
-    },
+    }
 };
 
-use ethereum_newtypes::{Address, Bytes, Hash, WU256};
+use revm::primitives::{Address, Bytes, U256};
 use evmexec::{
-    evm::{encode, Evm, EvmInput, Prefixed},
     evmtrace::Instruction,
-    genesis,
+    genesis::Genesis,
+    evm::{Evm, EvmInput},
 };
 use num_cpus;
 use parity_connector::BlockSelector;
 use rayon::prelude::*;
-use uint::U256;
 
 use crate::bytecode::Instr;
 use crate::disasm::Disasm;
@@ -31,7 +27,7 @@ use crate::se::{
     symbolic_graph::SymbolicGraph,
     symbolic_state::{Flags, HaltingReason, ResultState, SeState},
 };
-use crate::{LoadedAccount, PrecompiledContracts};
+use crate::{LoadedAccount, PrecompiledContracts, convert_fval_to_address};
 
 #[cfg(test)]
 use crate::se::expr::symbolic_memory::{self};
@@ -384,7 +380,7 @@ impl Analysis {
                             };
                             let acc = LoadedAccount {
                                 id: acc_ref.id.0,
-                                address: BitVec::as_bigint(&acc_ref.addr).unwrap().into(),
+                                address: convert_fval_to_address(&acc_ref.addr),
                                 balance: acc_ref.initial_balance.as_ref().cloned(),
                                 code: acc_ref.code().cloned().map(|v| v.into()),
                                 code_length: acc_ref.get_codesize() as u32,
@@ -466,9 +462,10 @@ impl Analysis {
         result: &Mutex<Vec<Attack>>,
     ) {
         match potential_attack_state.halting_reason {
+            // Check for generic INVALID or REVERT opcode invocation, which would match custom user-generated assert failures
             Some(HaltingReason::Invalid) | Some(HaltingReason::Revert) => {
                 if potential_attack_state.failed_assert {
-                    info!("An assert might be violated!");
+                    info!("A custom user-generated assert might be violated!");
 
                     if let Some(data) = self.generate_tx_datas(&potential_attack_state) {
                         if self
@@ -501,9 +498,12 @@ impl Analysis {
             }
             _ => {}
         };
+
+        // Otherwise check for the hardcoded attack states EthBMC was originally designed for
         let initial_state = &self.graph.initial_state();
         let attacker = &self.from;
-        // if we know the owner variable of the vicitm account check if we changed it
+
+        // If we know the owner variable of the victim account then check if we changed it
         if let Some(ref index) = potential_attack_state.account().owner {
             {
                 let mut check = potential_attack_state.clone();
@@ -514,9 +514,12 @@ impl Analysis {
                 check.push_constraint(neql(&initial_owner, &final_owner));
 
                 if check.check_sat() {
+                    info!("Ownership variable constraint may have been violated");
+                    let revm_index = FVal::as_revm_u256(index).unwrap();
+
                     if let Some(data) = self.generate_tx_datas(&check) {
                         if self
-                            .verify_tx_owner(&check, &data, FVal::as_bigint(index).unwrap().into())
+                            .verify_tx_owner(&check, &data, revm_index)
                             .is_some()
                         {
                             let attack = Attack {
@@ -534,8 +537,10 @@ impl Analysis {
                 }
             }
         }
-        // check if we can suicide the contract
+
+        // Check if we can self-destruct the contract
         if let Some(HaltingReason::Selfdestruct) = potential_attack_state.halting_reason {
+            info!("Contract self-destruct constraint may have been violated");
             if let Some(data) = self.generate_tx_datas(&potential_attack_state) {
                 if self
                     .verify_tx_suicide(&potential_attack_state, &data)
@@ -554,11 +559,13 @@ impl Analysis {
                 );
             }
         }
-        // check if we can hijack control flow
+
+        // Check if we can hijack control flow
         if potential_attack_state
             .flags
             .contains(Flags::HIJACK_CONTROL_FLOW)
         {
+            info!("Control flow hijack constraint may have been violated");
             if let Some(data) = self.generate_tx_datas(&potential_attack_state) {
                 if self
                     .verify_tx_hijack_control_flow(&potential_attack_state, &data)
@@ -577,7 +584,8 @@ impl Analysis {
                 );
             }
         }
-        // check if we can steal money
+
+        // Check if we can steal money
         let balance = Arc::clone(&potential_attack_state.env.get_account(attacker).balance);
         potential_attack_state.push_constraint(lt(
             &Arc::clone(
@@ -590,8 +598,8 @@ impl Analysis {
             ),
             &balance,
         ));
-
         if potential_attack_state.check_sat() {
+            info!("Money theft constraint may have been violated");
             if let Some(data) = self.generate_tx_datas(&potential_attack_state) {
                 if self
                     .verify_tx_value_transfer(&potential_attack_state, &data)
@@ -657,66 +665,52 @@ impl Analysis {
         &self,
         state: &SeState,
         attack_data: &[TxData],
-    ) -> Option<evmexec::evm::Execution> {
-        let mut genesis: genesis::Genesis = (*state.env).clone().into();
+    ) -> Option<evmexec::evm::EvmResult> {
+        let mut genesis: Genesis = (*state.env).clone().into();
+
         // Updating geth genesis w/ counterexample generated values
         if state.context.config().symbolic_storage {
             for upd in attack_data[0].storage_upd.iter() {
-                genesis.update_account_storage(&upd.account, upd.addr.clone(), upd.value.clone()).ok()?;
+                let account_addr = upd.account;
+                genesis.update_account_storage(&account_addr, upd.addr, upd.value).ok()?;
             }
         }
 
-        let mut evm: Evm = genesis.into();
-        let sender: Address = BitVec::as_bigint(&state.env.get_account(&self.from).addr)
-            .unwrap()
-            .into();
-        let receiver: Address = BitVec::as_bigint(&state.env.get_account(&self.to).addr)
-            .unwrap()
-            .into();
+        let mut evm: Evm = Evm::new(genesis);
+        evm.update_state_from_genesis();
+        let sender = convert_fval_to_address(&state.env.get_account(&self.from).addr);
+        let receiver = convert_fval_to_address(&state.env.get_account(&self.to).addr);
 
         let mut execution;
         for (
             i,
             TxData {
                 balance,
-                number,
-                timestamp,
+                number: _,
+                timestamp: _,
                 input_data,
                 storage_upd: _,
             },
         ) in attack_data.iter().enumerate()
         {
-            // update block when in concrete mode
-            if state.env.blocks[i].blocknumber.is_some() {
-                let block = &state.env.blocks[i];
-                evm.genesis.difficulty = BitVec::as_bigint(&block.difficulty).unwrap().into();
-                evm.genesis.coinbase = BitVec::as_bigint(&block.coinbase).unwrap().into();
-                evm.genesis.timestamp = BitVec::as_bigint(&block.timestamp).unwrap().into();
-                evm.genesis.number = BitVec::as_bigint(&block.number).unwrap().into();
-                evm.genesis.gas_limit = BitVec::as_bigint(&block.gas_limit).unwrap().into();
-            } else {
-                evm.genesis.number = number.clone();
-                evm.genesis.timestamp = timestamp.clone();
-            }
-
             let input = EvmInput {
                 input_data: convert_data_to_bytes(input_data.clone()),
                 sender: sender.clone(),
                 receiver: receiver.clone(),
                 gas: 100_000_000,
-                value: balance.clone(),
+                value: revm::primitives::U256::from(*balance),
             };
             execution = evm.execute(input);
+
             if i == attack_data.len() - 1 {
-                return Some(execution);
+                return match execution {
+                    Ok(result) => Some(result),
+                    Err(e) => {
+                        error!("Error during final transaction execution: {:?}", e);
+                        None
+                    }
+                };
             }
-            evm = match execution.into_evm_updated() {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("Error during transactions execution: {:?}", e);
-                    return None;
-                }
-            };
         }
         None
     }
@@ -726,14 +720,10 @@ impl Analysis {
             return Some(());
         }
 
-        let sender: Address = BitVec::as_bigint(&state.env.get_account(&self.from).addr)
-            .unwrap()
-            .into();
+        let sender = convert_fval_to_address(&state.env.get_account(&self.from).addr);
         let evm = self
-            .execute_concrete_evm(state, attack_data)?
-            .into_evm_updated()
-            .ok()?;
-        if evm.genesis.alloc[&sender].balance.0 > 10_000_000_000_000_000_000u64.into() {
+            .execute_concrete_evm(state, attack_data)?;
+        if evm.genesis.alloc[&sender].balance > U256::from(10_000_000_000_000_000_000u64) {
             Some(())
         } else {
             None
@@ -746,12 +736,12 @@ impl Analysis {
         }
 
         let evm = self.execute_concrete_evm(state, attack_data)?;
-        let hijack_address = U256::from_dec_str(crate::se::config::HIJACK_ADDR).unwrap();
-        for ins in evm.result.ok()?.trace {
+        let hijack_address = Address::from_str(crate::se::config::HIJACK_ADDR_HEX).unwrap();
+        for ins in evm.result.trace {
             match ins.instruction {
                 Instruction::DelegateCall { code_from, .. }
                 | Instruction::CallCode { code_from, .. } => {
-                    if code_from == hijack_address.into() {
+                    if code_from == hijack_address {
                         return Some(());
                     }
                 }
@@ -767,7 +757,7 @@ impl Analysis {
         }
 
         let evm = self.execute_concrete_evm(state, attack_data)?;
-        for ins in evm.result.ok()?.trace {
+        for ins in evm.result.trace {
             if let Instruction::Selfdestruct { .. } = ins.instruction {
                 return Some(());
             }
@@ -775,13 +765,13 @@ impl Analysis {
         None
     }
 
-    fn verify_tx_owner(&self, state: &SeState, attack_data: &[TxData], index: WU256) -> Option<()> {
+    fn verify_tx_owner(&self, state: &SeState, attack_data: &[TxData], index: U256) -> Option<()> {
         if state.context.config().no_verify {
             return Some(());
         }
 
         let evm = self.execute_concrete_evm(state, attack_data)?;
-        for ins in evm.result.ok()?.trace {
+        for ins in evm.result.trace {
             if let Instruction::SStore { addr, .. } = ins.instruction {
                 if addr == index {
                     return Some(());
@@ -797,10 +787,10 @@ impl Analysis {
         }
 
         let evm = self.execute_concrete_evm(state, attack_data)?;
-        for ins in evm.result.ok()?.trace {
+        for ins in evm.result.trace {
             match ins.instruction {
                 Instruction::Revert { panic, .. } => {
-                    if panic == WU256::from(U256::from(0x01)) {
+                    if panic == U256::from(0x01) {
                         return Some(());
                     }
                 }
@@ -842,11 +832,7 @@ impl Analysis {
                                 let value = load_state.get_value(op)?;
 
                                 // Get the address of the account/contract it belongs to
-                                let account_addr: Address = BitVec::as_bigint(
-                                    &load_state.env.get_account(&account_id).addr,
-                                )
-                                .unwrap()
-                                .into();
+                                let account_addr: Address = convert_fval_to_address(&load_state.env.get_account(&account_id).addr);
 
                                 // If the location we're writing to is a mapping entry,
                                 if let Val256::FSHA3(mem, offset, _len) = &addr.val().clone() {
@@ -863,29 +849,26 @@ impl Analysis {
                                     ))?;
 
                                     // Convert the values of the index and storage slot to bytes
-                                    let key = Hash(FVal::as_bigint(&index).unwrap());
-                                    let slot =
-                                        Hash(FVal::as_bigint(&mapping_key.unwrap()).unwrap());
+                                    let key = FVal::as_revm_u256(&index).unwrap();
+                                    let slot = FVal::as_revm_u256(&mapping_key.unwrap()).unwrap();
 
                                     // Get the location of the mapping entry as `keccak256(abi.encode(key, slot))`
                                     let hashed_location = tiny_keccak::keccak256(
-                                        convert_data_to_bytes(vec![key, slot]).as_slice(),
+                                        &convert_data_to_bytes(vec![key, slot]).0
                                     );
 
                                     let record = StorageUpdate {
                                         account: account_addr,
-                                        addr: encode(&hashed_location, &Prefixed::No)
-                                            .as_str()
-                                            .into(),
-                                        value: FVal::as_bigint(&value)?.into(),
+                                        addr: U256::from_be_bytes(hashed_location),
+                                        value: FVal::as_revm_u256(&value).unwrap(),
                                     };
 
                                     storage_updates.push(record);
                                 } else {
                                     let record = StorageUpdate {
                                         account: account_addr,
-                                        addr: FVal::as_bigint(&addr)?.into(),
-                                        value: FVal::as_bigint(&value)?.into(),
+                                        addr: FVal::as_revm_u256(&addr).unwrap(),
+                                        value: FVal::as_revm_u256(&value).unwrap(),
                                     };
 
                                     storage_updates.push(record);
@@ -984,28 +967,25 @@ impl fmt::Display for Attack {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StorageUpdate {
     pub account: Address,
-    pub addr: WU256,
-    pub value: WU256,
+    pub addr: U256,
+    pub value: U256,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TxData {
-    pub balance: WU256,
-    pub number: WU256,
-    pub timestamp: WU256,
-    pub input_data: Vec<Hash>,
+    pub balance: U256,
+    pub number: U256,
+    pub timestamp: U256,
+    pub input_data: Vec<U256>,
     pub storage_upd: Vec<StorageUpdate>,
 }
 
-fn convert_data_to_bytes(data: Vec<Hash>) -> Bytes {
-    let mut vec = Vec::with_capacity(32 * data.len());
-    for u256 in data {
-        let array: [u8; 32] = u256.0.into();
-        for i in 0..32 {
-            vec.push(array[i]);
-        }
+fn convert_data_to_bytes(data: Vec<U256>) -> Bytes {
+    let mut s = String::from("0x");
+    for val in data {
+        s.push_str(&format!("{:064x}", val));
     }
-    vec.into()
+    Bytes::from_str(&s).unwrap()
 }
 
 fn tx_data_from_bval_vec(
@@ -1015,12 +995,12 @@ fn tx_data_from_bval_vec(
     data: Vec<BVal>,
     storage_upd: Vec<StorageUpdate>,
 ) -> Option<TxData> {
-    let balance = FVal::as_bigint(&balance)?.into();
-    let number = FVal::as_bigint(&number)?.into();
-    let timestamp = FVal::as_bigint(&timestamp)?.into();
+    let balance = FVal::as_revm_u256(&balance)?;
+    let number = FVal::as_revm_u256(&number)?;
+    let timestamp = FVal::as_revm_u256(&timestamp)?;
     let mut res = Vec::with_capacity(data.len());
     for val in data {
-        res.push(FVal::as_bigint(&val)?.into());
+        res.push(FVal::as_revm_u256(&val)?);
     }
     Some(TxData {
         balance,
