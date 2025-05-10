@@ -51,7 +51,7 @@ where
     Ok(WU256::from(u))
 }
 
-// oad to even length
+// pad to even length
 impl fmt::LowerHex for WU256 {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         let mut padding = 2;

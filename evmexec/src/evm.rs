@@ -19,7 +19,7 @@ pub struct Evm {
     pub genesis: Genesis,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EvmInput {
     pub input_data: Bytes,
     pub sender: Address,
@@ -186,8 +186,7 @@ impl Execution {
         }
     }
 
-    /// Updates the environment based on the execution result, returns an error if the execution did not
-    /// succeed
+    /// Updates the environment based on the execution result, returns an error if the execution did not succeed
     pub fn into_evm_updated(mut self) -> Result<Evm, crate::Error> {
         let res = self.result?;
 
@@ -202,7 +201,7 @@ impl Execution {
             }
         }
 
-        // jsut overwrite, we have to iterate each account anyway
+        // Just overwrite, we have to iterate each account anyway
         for (addr, acc_state) in res.new_state.accounts {
             if let Some(acc) = self.genesis.alloc.get_mut(&addr) {
                 acc.balance = acc_state.balance;
@@ -234,6 +233,14 @@ impl Execution {
 pub struct State {
     // SIROCCO: We only care about the resulting state of the accounts post-evm execution
     accounts: HashMap<Address, Account>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            accounts: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug)]

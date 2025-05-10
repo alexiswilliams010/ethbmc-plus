@@ -1,11 +1,10 @@
 use revm::{
-    database::{CacheDB, EmptyDB},
+    bytecode::Bytecode, database::{CacheDB, EmptyDB},
+    inspector::inspectors::TracerEip3155,
     primitives::{Address, Bytes, TxKind, U256},
     state::AccountInfo,
-    bytecode::Bytecode,
-    inspector::inspectors::TracerEip3155,
     Context,
-    ExecuteCommitEvm,
+    InspectCommitEvm,
     MainBuilder,
     MainContext,
 };
@@ -16,33 +15,43 @@ use crate::evmtrace::{ContextParser, InstructionContext};
 use crate::ethereum_newtypes::Address as OldEvmAddress;
 use crate::Error;
 use std::io::{Write, BufRead};
+use std::cell::RefCell;
+use std::rc::Rc;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct FlushWriter {
-    writer: [u8; 1024],
-    pos: usize,
+    buffer: Rc<RefCell<Vec<u8>>>,
+    flushed: Rc<RefCell<bool>>,
 }
 
 impl FlushWriter {
     fn new() -> Self {
-        Self { writer: [0; 1024], pos: 0 }
+        Self { 
+            buffer: Rc::new(RefCell::new(Vec::new())),
+            flushed: Rc::new(RefCell::new(false)),
+        }
     }
 
-    fn into_vec(self) -> Vec<u8> {
-        self.writer[..self.pos].to_vec()
+    fn get_buffer(&mut self) -> String {
+        // Ensure data is flushed before returning
+        self.flush().unwrap();
+        String::from_utf8_lossy(&self.buffer.borrow()).to_string()
     }
 }
 
 impl Write for FlushWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let remaining = self.writer.len() - self.pos;
-        let to_write = std::cmp::min(remaining, buf.len());
-        self.writer[self.pos..self.pos + to_write].copy_from_slice(&buf[..to_write]);
-        self.pos += to_write;
-        Ok(to_write)
+        self.buffer.borrow_mut().extend_from_slice(buf);
+        *self.flushed.borrow_mut() = false;
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
+        if !*self.flushed.borrow() {
+            // Here we could do additional processing if needed
+            // For now, we just mark as flushed
+            *self.flushed.borrow_mut() = true;
+        }
         Ok(())
     }
 }
@@ -71,9 +80,10 @@ impl Revm {
         }
     }
 
-    pub fn execute(self, input: EvmInput) -> Result<RevmResult, Error> {
+    pub fn execute(&mut self, input: EvmInput) -> Result<RevmResult, Error> {
         let input_clone = input.clone();
         let revm_input = Revm::evm_to_revm_input(input);
+        println!("revm_input: {:?}", revm_input);
         let receiver = input_clone.receiver.clone();
         // Setup the EVM from the stored CacheDB and modify the transaction to include the input data
         let evm = Context::mainnet()
@@ -88,21 +98,22 @@ impl Revm {
             .build_mainnet();
 
         // Set an inspector to capture the trace of the execution
-        let writer = FlushWriter::new();
+        let mut writer = FlushWriter::new();
         let mut evm = evm
-            .with_inspector(TracerEip3155::new(Box::new(writer))
+            .with_inspector(TracerEip3155::new(Box::new(writer.clone()))
             .without_summary()
             .with_memory());
 
         // Execute the transaction and commit the changes back to the CacheDB
-        let result = evm.replay_commit().unwrap();
-        let trace = writer.into_vec();
+        let result = evm.inspect_replay_commit().unwrap();
+        println!("result: {:?}", result);
+        let trace = writer.get_buffer();
 
         // Parse the trace into a Vec<InstructionContext>
         let instructions = Revm::parse_trace(trace, receiver);
 
         Ok(RevmResult {
-            genesis: self.genesis,
+            genesis: self.genesis.clone(),
             input: input_clone,
             result: ExecutionResult {
                 trace: instructions,
@@ -114,16 +125,14 @@ impl Revm {
     pub fn evm_to_revm_input(input: EvmInput) -> RevmInput {
         RevmInput {
             input_data: Bytes::from(input.input_data.0.clone()),
-            sender: Address::from_slice(&<[u8; 32]>::from(input.sender.0)), // Take last 20 bytes
-            receiver: Address::from_slice(&<[u8; 32]>::from(input.receiver.0)), // Take last 20 bytes
+            sender: Address::from_slice(&<[u8; 32]>::from(input.sender.0)[12..]), // Take last 20 bytes
+            receiver: Address::from_slice(&<[u8; 32]>::from(input.receiver.0)[12..]), // Take last 20 bytes
             gas: input.gas,
             value: U256::from_be_bytes(<[u8; 32]>::from(input.value.0)),
         }
     }
 
-    pub fn update_state_from_genesis(mut self, genesis: Genesis) -> Self {
-        self.genesis = genesis;
-
+    pub fn update_state_from_genesis(&mut self) {
         // Update the CacheDB using the AccountInfo in the provided genesis
         for (addr, acc_state) in self.genesis.alloc.iter() {
             let mut info = AccountInfo::default();
@@ -141,26 +150,25 @@ impl Revm {
             info = info.with_nonce(acc_state.nonce.0.as_u64());
 
             // Convert address and insert the AccountInfo into the CacheDB
-            self.db.insert_account_info(Address::from_slice(&<[u8; 32]>::from(addr.0)), info);
+            self.db.insert_account_info(Address::from_slice(&<[u8; 32]>::from(addr.0)[12..]), info);
 
             // For each storage slot, insert into the CacheDB
             for (slot, value) in acc_state.storage.iter() {
                 let slot_u256 = U256::from_be_bytes(<[u8; 32]>::from(slot.0));
                 let value_u256 = U256::from_be_bytes(<[u8; 32]>::from(value.0));
-                self.db.insert_account_storage(Address::from_slice(&<[u8; 32]>::from(addr.0)), slot_u256, value_u256).unwrap();
+                self.db.insert_account_storage(Address::from_slice(&<[u8; 32]>::from(addr.0)[12..]), slot_u256, value_u256).unwrap();
             }
         }
-
-        self
     }
 
-    pub fn parse_trace(trace: Vec<u8>, receiver: OldEvmAddress) -> Vec<InstructionContext> {
+    pub fn parse_trace(trace: String, receiver: OldEvmAddress) -> Vec<InstructionContext> {
         let mut buf = String::new();
         let mut instructions = Vec::new();
         let mut parser = ContextParser::new(receiver);
         let mut reader = std::io::Cursor::new(trace);
 
         while let Ok(d) = reader.read_line(&mut buf) {
+            println!("buf: {}", buf);
             // end of stream
             if d == 0 {
                 break;
@@ -169,11 +177,8 @@ impl Revm {
                 panic!("Could not fetch evm output: {}", buf);
             }
 
-            // Attempts to detect the end of the trace by looking for the "root" keyword to indicate the start of the account object
-            // Is this fragile? Yes, but until we switch over to revm this will work
-            if buf.contains("root") {
-                break;
-            } else if let Some(ins) = parser.parse_trace_line(&buf) {
+            if let Some(ins) = parser.parse_trace_line(&buf) {
+                println!("ins: {:?}", ins);
                 instructions.push(ins);
             }
 

@@ -18,6 +18,7 @@ extern crate maplit;
 pub mod evm;
 pub mod evmtrace;
 pub mod genesis;
+pub mod revm;
 
 use std::io;
 

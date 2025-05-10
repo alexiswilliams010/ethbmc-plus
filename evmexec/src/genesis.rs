@@ -11,7 +11,7 @@ use tempfile::{Builder, NamedTempFile};
 
 use crate::Error;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub eip150_block: u32,
@@ -28,7 +28,7 @@ pub struct Config {
     pub chain_id: u32,
 }
 
-#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, Clone)]
 pub struct Account {
     #[serde(deserialize_with = "wu256_from_usize_str")]
     pub balance: WU256,
@@ -117,7 +117,7 @@ impl Config {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Genesis {
     pub difficulty: WU256,

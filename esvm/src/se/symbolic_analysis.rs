@@ -13,6 +13,7 @@ use evmexec::{
     evm::{encode, Evm, EvmInput, Prefixed},
     evmtrace::Instruction,
     genesis,
+    revm::Revm,
 };
 use num_cpus;
 use parity_connector::BlockSelector;
@@ -667,7 +668,7 @@ impl Analysis {
         &self,
         state: &SeState,
         attack_data: &[TxData],
-    ) -> Option<evmexec::evm::Execution> {
+    ) -> Option<evmexec::revm::RevmResult> {
         let mut genesis: genesis::Genesis = (*state.env).clone().into();
         // Updating geth genesis w/ counterexample generated values
         if state.context.config().symbolic_storage {
@@ -676,7 +677,8 @@ impl Analysis {
             }
         }
 
-        let mut evm: Evm = genesis.into();
+        let mut evm: Revm = Revm::new(genesis);
+        evm.update_state_from_genesis();
         let sender: Address = BitVec::as_bigint(&state.env.get_account(&self.from).addr)
             .unwrap()
             .into();
@@ -717,16 +719,16 @@ impl Analysis {
                 value: balance.clone(),
             };
             execution = evm.execute(input);
+
             if i == attack_data.len() - 1 {
-                return Some(execution);
+                return match execution {
+                    Ok(result) => Some(result),
+                    Err(e) => {
+                        error!("Error during final transaction execution: {:?}", e);
+                        None
+                    }
+                };
             }
-            evm = match execution.into_evm_updated() {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("Error during transactions execution: {:?}", e);
-                    return None;
-                }
-            };
         }
         None
     }
@@ -740,9 +742,7 @@ impl Analysis {
             .unwrap()
             .into();
         let evm = self
-            .execute_concrete_evm(state, attack_data)?
-            .into_evm_updated()
-            .ok()?;
+            .execute_concrete_evm(state, attack_data)?;
         if evm.genesis.alloc[&sender].balance.0 > 10_000_000_000_000_000_000u64.into() {
             Some(())
         } else {
@@ -757,7 +757,7 @@ impl Analysis {
 
         let evm = self.execute_concrete_evm(state, attack_data)?;
         let hijack_address = U256::from_dec_str(crate::se::config::HIJACK_ADDR).unwrap();
-        for ins in evm.result.ok()?.trace {
+        for ins in evm.result.trace {
             match ins.instruction {
                 Instruction::DelegateCall { code_from, .. }
                 | Instruction::CallCode { code_from, .. } => {
@@ -777,7 +777,7 @@ impl Analysis {
         }
 
         let evm = self.execute_concrete_evm(state, attack_data)?;
-        for ins in evm.result.ok()?.trace {
+        for ins in evm.result.trace {
             if let Instruction::Selfdestruct { .. } = ins.instruction {
                 return Some(());
             }
@@ -791,7 +791,7 @@ impl Analysis {
         }
 
         let evm = self.execute_concrete_evm(state, attack_data)?;
-        for ins in evm.result.ok()?.trace {
+        for ins in evm.result.trace {
             if let Instruction::SStore { addr, .. } = ins.instruction {
                 if addr == index {
                     return Some(());
@@ -807,7 +807,7 @@ impl Analysis {
         }
 
         let evm = self.execute_concrete_evm(state, attack_data)?;
-        for ins in evm.result.ok()?.trace {
+        for ins in evm.result.trace {
             match ins.instruction {
                 Instruction::Revert { panic, .. } => {
                     if panic == WU256::from(U256::from(0x01)) {
