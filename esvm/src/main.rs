@@ -115,9 +115,9 @@ fn single_analysis(matches: clap::ArgMatches) {
 }
 
 fn parse_args<'a>() -> ArgMatches<'a> {
-    let app = App::new("EthBMC")
+    let app = App::new("EthBMC-Plus")
         .version("1.0.0")
-        .about("EthBMC: A Bounded Model Checker for Smart Contracts")
+        .about("EthBMC-Plus: A Bounded Model Checker for Smart Contracts")
         // General
         .arg(
             Arg::with_name("INPUT")

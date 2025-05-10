@@ -40,7 +40,7 @@ features = ["std"]
 path = "src/lib.rs"
 
 [[bin]]
-name = "ethbmc"
+name = "ethbmc-plus"
 path = "src/main.rs"
 
 [dev-dependencies]
