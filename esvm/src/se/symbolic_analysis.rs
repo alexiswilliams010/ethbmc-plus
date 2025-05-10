@@ -466,9 +466,10 @@ impl Analysis {
         result: &Mutex<Vec<Attack>>,
     ) {
         match potential_attack_state.halting_reason {
+            // Check for generic INVALID or REVERT opcode invocation, which would match custom user-generated assert failures
             Some(HaltingReason::Invalid) | Some(HaltingReason::Revert) => {
                 if potential_attack_state.failed_assert {
-                    info!("An assert might be violated!");
+                    info!("A custom user-generated assert might be violated!");
 
                     if let Some(data) = self.generate_tx_datas(&potential_attack_state) {
                         if self
@@ -501,9 +502,12 @@ impl Analysis {
             }
             _ => {}
         };
+
+        // Otherwise check for the hardcoded attack states EthBMC was originally designed for
         let initial_state = &self.graph.initial_state();
         let attacker = &self.from;
-        // if we know the owner variable of the vicitm account check if we changed it
+
+        // If we know the owner variable of the victim account then check if we changed it
         if let Some(ref index) = potential_attack_state.account().owner {
             {
                 let mut check = potential_attack_state.clone();
@@ -514,6 +518,7 @@ impl Analysis {
                 check.push_constraint(neql(&initial_owner, &final_owner));
 
                 if check.check_sat() {
+                    info!("Ownership variable constraint may have been violated");
                     if let Some(data) = self.generate_tx_datas(&check) {
                         if self
                             .verify_tx_owner(&check, &data, FVal::as_bigint(index).unwrap().into())
@@ -534,8 +539,10 @@ impl Analysis {
                 }
             }
         }
-        // check if we can suicide the contract
+
+        // Check if we can self-destruct the contract
         if let Some(HaltingReason::Selfdestruct) = potential_attack_state.halting_reason {
+            info!("Contract self-destruct constraint may have been violated");
             if let Some(data) = self.generate_tx_datas(&potential_attack_state) {
                 if self
                     .verify_tx_suicide(&potential_attack_state, &data)
@@ -554,11 +561,13 @@ impl Analysis {
                 );
             }
         }
-        // check if we can hijack control flow
+
+        // Check if we can hijack control flow
         if potential_attack_state
             .flags
             .contains(Flags::HIJACK_CONTROL_FLOW)
         {
+            info!("Control flow hijack constraint may have been violated");
             if let Some(data) = self.generate_tx_datas(&potential_attack_state) {
                 if self
                     .verify_tx_hijack_control_flow(&potential_attack_state, &data)
@@ -577,7 +586,8 @@ impl Analysis {
                 );
             }
         }
-        // check if we can steal money
+
+        // Check if we can steal money
         let balance = Arc::clone(&potential_attack_state.env.get_account(attacker).balance);
         potential_attack_state.push_constraint(lt(
             &Arc::clone(
@@ -590,8 +600,8 @@ impl Analysis {
             ),
             &balance,
         ));
-
         if potential_attack_state.check_sat() {
+            info!("Money theft constraint may have been violated");
             if let Some(data) = self.generate_tx_datas(&potential_attack_state) {
                 if self
                     .verify_tx_value_transfer(&potential_attack_state, &data)

@@ -118,6 +118,7 @@ impl Evm {
         let mut instructions = Vec::new();
         let mut parser = ContextParser::new(receiver);
 
+        // EthBMC currently iterates over the Geth evm output line by line, where the output contains a JSON object for each line
         while let Ok(d) = reader.read_line(&mut buf) {
             // end of stream
             if d == 0 {
@@ -130,8 +131,9 @@ impl Evm {
                 )));
             }
 
-            // detect end of the trace
-            if buf.contains("output") {
+            // Attempts to detect the end of the trace by looking for the "root" keyword to indicate the start of the account object
+            // Is this fragile? Yes, but until we switch over to revm this will work
+            if buf.contains("root") {
                 break;
             } else if let Some(ins) = parser.parse_trace_line(&buf) {
                 instructions.push(ins);
@@ -143,6 +145,9 @@ impl Evm {
 
         let new_state = if cfg!(feature = "verbose") {
             buf.clear();
+            // Since we parsed out the "root" keyword, we need to add back in the opening brace of the object
+            // We don't use the root hash anywhere so it's fine to leave it out
+            buf += "{";
             while let Ok(d) = reader.read_line(&mut buf) {
                 if d == 0 {
                     break;
@@ -227,7 +232,7 @@ impl Execution {
 
 #[derive(Debug, Deserialize)]
 pub struct State {
-    // root: Hash, // SIROCCO: is this supposed to be used somewhere?
+    // SIROCCO: We only care about the resulting state of the accounts post-evm execution
     accounts: HashMap<Address, Account>,
 }
 
