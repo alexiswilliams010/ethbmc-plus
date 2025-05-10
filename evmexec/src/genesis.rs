@@ -1,9 +1,6 @@
-use std::{
-    collections::HashMap,
-    io::{Seek, SeekFrom, Write},
-};
+use std::io::{Seek, SeekFrom, Write};
 
-use revm::primitives::{Address, Bytes, U256};
+use revm::primitives::{Address, Bytes, U256, HashMap};
 use log::debug;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -59,7 +56,20 @@ where
     D: Deserializer<'de>,
 {
     let v: Value = Deserialize::deserialize(deserializer)?;
-    Ok(HashMap::deserialize(v).unwrap_or(default_storage()))
+    match v {
+        Value::Object(map) => {
+            let mut storage = HashMap::new();
+            for (key, value) in map {
+                let key = U256::from_str_radix(&key, 16)
+                    .map_err(|_| serde::de::Error::custom("Invalid storage key"))?;
+                let value = U256::from_str_radix(&value.as_str().unwrap_or("0"), 16)
+                    .map_err(|_| serde::de::Error::custom("Invalid storage value"))?;
+                storage.insert(key, value);
+            }
+            Ok(storage)
+        }
+        _ => Ok(default_storage()),
+    }
 }
 
 impl Account {
@@ -207,11 +217,10 @@ impl Genesis {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs::File, io::Read};
+    use std::{fs::File, io::Read, str::FromStr};
 
     #[test]
     fn create_simple_genesis_() {
@@ -221,7 +230,8 @@ mod tests {
         f.read_to_string(&mut s)
             .expect("Could not read into Buffer");
 
-        let correct = "{\"difficulty\":\"0x01\",\"coinbase\":\"0x0000000000000000000000000000000000000000\",\"timestamp\":\"0x00\",\"number\":\"0x00\",\"gasLimit\":\"0x3d0900\",\"extraData\":\"0x00\",\"mixhash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"parentHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"nonce\":\"0x00\",\"alloc\":{},\"config\":{\"eip150Block\":0,\"eip155Block\":0,\"eip158Block\":0,\"homesteadBlock\":0,\"daoForkBlock\":0,\"byzantiumBlock\":2000,\"constantinopleBlock\":2000}}";
+        // Mostly this is a test of whatever the default genesis values are, which changed from the last time this test was written
+        let correct = "{\"difficulty\":\"0x1\",\"coinbase\":\"0x0000000000000000000000000000000000000000\",\"timestamp\":\"0x0\",\"number\":\"0x0\",\"gasLimit\":\"0x3d0900\",\"extraData\":\"0x0\",\"mixhash\":\"0x0\",\"parentHash\":\"0x0\",\"nonce\":\"0x0\",\"alloc\":{},\"config\":{\"eip150Block\":0,\"eip155Block\":0,\"eip158Block\":0,\"homesteadBlock\":0,\"daoForkBlock\":0,\"byzantiumBlock\":0,\"constantinopleBlock\":0,\"petersburgBlock\":0,\"istanbulBlock\":0,\"londonBlock\":0,\"berlinBlock\":0,\"chainId\":1}}";
 
         assert_eq!(s, correct);
     }
@@ -238,41 +248,42 @@ mod tests {
         f.read_to_string(&mut s)
             .expect("Could not read into Buffer");
 
-        let correct = "{\"difficulty\":\"0x01\",\"coinbase\":\"0x0000000000000000000000000000000000000000\",\"timestamp\":\"0x00\",\"number\":\"0x00\",\"gasLimit\":\"0x3d0900\",\"extraData\":\"0x00\",\"mixhash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"parentHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"nonce\":\"0x00\",\"alloc\":{},\"config\":{\"eip150Block\":0,\"eip155Block\":0,\"eip158Block\":0,\"homesteadBlock\":0,\"daoForkBlock\":0,\"byzantiumBlock\":2000,\"constantinopleBlock\":2000}}";
+        // Similarly to create_simple_genesis, the actual resulting values will be whatever the default values are set in Genesis::new
+        let correct = "{\"difficulty\":\"0x1\",\"coinbase\":\"0x0000000000000000000000000000000000000000\",\"timestamp\":\"0x0\",\"number\":\"0x0\",\"gasLimit\":\"0x3d0900\",\"extraData\":\"0x0\",\"mixhash\":\"0x0\",\"parentHash\":\"0x0\",\"nonce\":\"0x0\",\"alloc\":{},\"config\":{\"eip150Block\":0,\"eip155Block\":0,\"eip158Block\":0,\"homesteadBlock\":0,\"daoForkBlock\":0,\"byzantiumBlock\":0,\"constantinopleBlock\":0,\"petersburgBlock\":0,\"istanbulBlock\":0,\"londonBlock\":0,\"berlinBlock\":0,\"chainId\":1}}";
 
         assert_eq!(s, correct);
     }
 
     #[test]
-    fn deseriaize_accounts() {
+    fn deserialize_accounts() {
         let states: HashMap<Address, Account> = serde_json::from_str(&STATE_EXAMPLE).unwrap();
         let mut correct = HashMap::new();
 
         let acc_1 = Account {
-            balance: 0.into(),
-            nonce : 1.into(),
-            code: Bytes::from_hex_str("60806040526004361061004b5763ffffffff7c01000000000000000000000000000000000000000000000000000000006000350416637c52e3258114610050578063e9ca826c14610080575b600080fd5b34801561005c57600080fd5b5061007e73ffffffffffffffffffffffffffffffffffffffff60043516610095565b005b34801561008c57600080fd5b5061007e610145565b60005473ffffffffffffffffffffffffffffffffffffffff1633146100b657fe5b600154604080517f338ccd7800000000000000000000000000000000000000000000000000000000815273ffffffffffffffffffffffffffffffffffffffff84811660048301529151919092169163338ccd7891602480830192600092919082900301818387803b15801561012a57600080fd5b505af115801561013e573d6000803e3d6000fd5b5050505050565b6000805473ffffffffffffffffffffffffffffffffffffffff1916331790555600a165627a7a72305820b376cbf41ad45cba2c20890893f93f24efe850bf7eaf35fd12a0474576b4ac2d0029").unwrap(),
+            balance: U256::from(0),
+            nonce : U256::from(1),
+            code: Bytes::from_str("60806040526004361061004b5763ffffffff7c01000000000000000000000000000000000000000000000000000000006000350416637c52e3258114610050578063e9ca826c14610080575b600080fd5b34801561005c57600080fd5b5061007e73ffffffffffffffffffffffffffffffffffffffff60043516610095565b005b34801561008c57600080fd5b5061007e610145565b60005473ffffffffffffffffffffffffffffffffffffffff1633146100b657fe5b600154604080517f338ccd7800000000000000000000000000000000000000000000000000000000815273ffffffffffffffffffffffffffffffffffffffff84811660048301529151919092169163338ccd7891602480830192600092919082900301818387803b15801561012a57600080fd5b505af115801561013e573d6000803e3d6000fd5b5050505050565b6000805473ffffffffffffffffffffffffffffffffffffffff1916331790555600a165627a7a72305820b376cbf41ad45cba2c20890893f93f24efe850bf7eaf35fd12a0474576b4ac2d0029").unwrap(),
             storage: HashMap::new(),
         };
-        correct.insert("0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9".into(), acc_1);
+        correct.insert(Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap(), acc_1);
 
         let acc_2 = Account {
-            balance: 16.into(),
-            nonce: 1.into(),
+            balance: U256::from(16),
+            nonce: U256::from(1),
             code: vec![].into(),
             storage: HashMap::new(),
         };
-        correct.insert("0dfa72de72f96cf5b127b070e90d68ec9710797c".into(), acc_2);
+        correct.insert(Address::from_str("0x0dfa72de72f96cf5b127b070e90d68ec9710797c").unwrap(), acc_2);
 
         let acc_3 = Account {
-            balance: 1048576.into(),
-            nonce: 1.into(),
-            code: Bytes::from_hex_str("606060405260043610603e5763ffffffff7c0100000000000000000000000000000000000000000000000000000000600035041663338ccd7881146043575b600080fd5b3415604d57600080fd5b606c73ffffffffffffffffffffffffffffffffffffffff60043516606e565b005b6000543373ffffffffffffffffffffffffffffffffffffffff908116911614609257fe5b8073ffffffffffffffffffffffffffffffffffffffff166108fc3073ffffffffffffffffffffffffffffffffffffffff16319081150290604051600060405180830381858888f19350505050151560e857600080fd5b505600a165627a7a72305820d94e263975863b2024dc4bfaba0287941709bc576381ae567f9683d8fc2052940029").unwrap(),
+            balance: U256::from(1048576),
+            nonce: U256::from(1),
+            code: Bytes::from_str("606060405260043610603e5763ffffffff7c0100000000000000000000000000000000000000000000000000000000600035041663338ccd7881146043575b600080fd5b3415604d57600080fd5b606c73ffffffffffffffffffffffffffffffffffffffff60043516606e565b005b6000543373ffffffffffffffffffffffffffffffffffffffff908116911614609257fe5b8073ffffffffffffffffffffffffffffffffffffffff166108fc3073ffffffffffffffffffffffffffffffffffffffff16319081150290604051600060405180830381858888f19350505050151560e857600080fd5b505600a165627a7a72305820d94e263975863b2024dc4bfaba0287941709bc576381ae567f9683d8fc2052940029").unwrap(),
             storage: hashmap!(
-                0.into() => "940ad62f08b3b9f0ecc7251befbeff80c9bb488fe9".into(),
+                U256::from(0) => U256::from_str_radix("940ad62f08b3b9f0ecc7251befbeff80c9bb488fe9", 16).unwrap(),
             ),
         };
-        correct.insert("86c249452ee469d839942e05b8492dbb9f9c70ac".into(), acc_3);
+        correct.insert(Address::from_str("0x86c249452ee469d839942e05b8492dbb9f9c70ac").unwrap(), acc_3);
 
         assert_eq!(correct, states);
     }
@@ -306,4 +317,3 @@ mod tests {
     }
 }"#;
 }
-*/
