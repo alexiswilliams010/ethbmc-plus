@@ -1,4 +1,4 @@
-use ethereum_newtypes::WU256;
+use revm::primitives::U256;
 use serde::ser::{Serialize, Serializer};
 
 /// An enum to select the block to fetch from the blockchain
@@ -28,15 +28,15 @@ implement_return_struct!(
     // A rust representation of an ethereum block, reduced to the fields used by ethAEG
     #[serde(rename_all = "camelCase")]
     pub struct Block {
-        gas_limit: WU256,
-        number: WU256,
-        miner: WU256,
-        hash: WU256,
-        timestamp: WU256,
-        difficulty: WU256,
+        gas_limit: U256,
+        number: U256,
+        miner: U256,
+        hash: U256,
+        timestamp: U256,
+        difficulty: U256,
     }
 );
 
 /// A rust representation of an account storaage
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Storage(pub Vec<Vec<WU256>>);
+pub struct Storage(pub Vec<Vec<U256>>);

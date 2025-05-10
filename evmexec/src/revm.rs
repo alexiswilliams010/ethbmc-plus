@@ -1,8 +1,8 @@
 use revm::{
     bytecode::Bytecode, database::{CacheDB, EmptyDB},
     inspector::inspectors::TracerEip3155,
-    primitives::{Address, Bytes, TxKind, U256},
-    state::AccountInfo,
+    primitives::{Address, Bytes, TxKind, U256, HashMap},
+    state::{Account, AccountInfo},
     Context,
     InspectCommitEvm,
     MainBuilder,
@@ -10,9 +10,7 @@ use revm::{
 };
 
 use crate::genesis::Genesis;
-use crate::evm::{EvmInput, ExecutionResult, State};
 use crate::evmtrace::{ContextParser, InstructionContext};
-use crate::ethereum_newtypes::Address as OldEvmAddress;
 use crate::Error;
 use std::io::{Write, BufRead};
 use std::cell::RefCell;
@@ -63,7 +61,7 @@ pub struct Revm {
     pub genesis: Genesis,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RevmInput {
     pub input_data: Bytes,
     pub sender: Address,
@@ -80,20 +78,18 @@ impl Revm {
         }
     }
 
-    pub fn execute(&mut self, input: EvmInput) -> Result<RevmResult, Error> {
+    pub fn execute(&mut self, input: RevmInput) -> Result<RevmResult, Error> {
         let input_clone = input.clone();
-        let revm_input = Revm::evm_to_revm_input(input);
-        println!("revm_input: {:?}", revm_input);
-        let receiver = input_clone.receiver.clone();
+
         // Setup the EVM from the stored CacheDB and modify the transaction to include the input data
         let evm = Context::mainnet()
             .with_db(self.db.clone())
             .modify_tx_chained(|tx| {
-                tx.caller = revm_input.sender;
-                tx.kind = TxKind::Call(revm_input.receiver);
-                tx.data = revm_input.input_data.clone();
-                tx.value = revm_input.value;
-                tx.gas_limit = revm_input.gas as u64;
+                tx.caller = input.sender;
+                tx.kind = TxKind::Call(input.receiver);
+                tx.data = input.input_data.clone();
+                tx.value = input.value;
+                tx.gas_limit = input.gas as u64;
             })
             .build_mainnet();
 
@@ -110,7 +106,7 @@ impl Revm {
         let trace = writer.get_buffer();
 
         // Parse the trace into a Vec<InstructionContext>
-        let instructions = Revm::parse_trace(trace, receiver);
+        let instructions = Revm::parse_trace(trace, input.receiver);
 
         Ok(RevmResult {
             genesis: self.genesis.clone(),
@@ -122,16 +118,6 @@ impl Revm {
         })
     }
 
-    pub fn evm_to_revm_input(input: EvmInput) -> RevmInput {
-        RevmInput {
-            input_data: Bytes::from(input.input_data.0.clone()),
-            sender: Address::from_slice(&<[u8; 32]>::from(input.sender.0)[12..]), // Take last 20 bytes
-            receiver: Address::from_slice(&<[u8; 32]>::from(input.receiver.0)[12..]), // Take last 20 bytes
-            gas: input.gas,
-            value: U256::from_be_bytes(<[u8; 32]>::from(input.value.0)),
-        }
-    }
-
     pub fn update_state_from_genesis(&mut self) {
         // Update the CacheDB using the AccountInfo in the provided genesis
         for (addr, acc_state) in self.genesis.alloc.iter() {
@@ -139,29 +125,26 @@ impl Revm {
 
             // Set code if not empty
             if !acc_state.code.is_empty() {
-                let bytes = Bytecode::new_raw(Bytes::from(acc_state.code.0.clone()));
-                info = info.with_code(bytes);
+                info = info.with_code(Bytecode::new_raw(acc_state.code.clone()));
             }
 
             // Convert balance from WU256 to U256
-            info = info.with_balance(U256::from_be_bytes(<[u8; 32]>::from(acc_state.balance.0)));
+            info = info.with_balance(acc_state.balance);
 
             // Convert nonce from WU256 to u64
-            info = info.with_nonce(acc_state.nonce.0.as_u64());
+            info = info.with_nonce(acc_state.nonce.try_into().unwrap());
 
             // Convert address and insert the AccountInfo into the CacheDB
-            self.db.insert_account_info(Address::from_slice(&<[u8; 32]>::from(addr.0)[12..]), info);
+            self.db.insert_account_info(*addr, info);
 
             // For each storage slot, insert into the CacheDB
             for (slot, value) in acc_state.storage.iter() {
-                let slot_u256 = U256::from_be_bytes(<[u8; 32]>::from(slot.0));
-                let value_u256 = U256::from_be_bytes(<[u8; 32]>::from(value.0));
-                self.db.insert_account_storage(Address::from_slice(&<[u8; 32]>::from(addr.0)[12..]), slot_u256, value_u256).unwrap();
+                self.db.insert_account_storage(*addr, *slot, *value).unwrap();
             }
         }
     }
 
-    pub fn parse_trace(trace: String, receiver: OldEvmAddress) -> Vec<InstructionContext> {
+    pub fn parse_trace(trace: String, receiver: Address) -> Vec<InstructionContext> {
         let mut buf = String::new();
         let mut instructions = Vec::new();
         let mut parser = ContextParser::new(receiver);
@@ -192,6 +175,16 @@ impl Revm {
 
 pub struct RevmResult {
     pub genesis: Genesis,
-    pub input: EvmInput,
+    pub input: RevmInput,
     pub result: ExecutionResult,
+}
+
+pub struct ExecutionResult {
+    pub trace: Vec<InstructionContext>,
+    pub new_state: State,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct State {
+    pub accounts: HashMap<Address, Account>,
 }

@@ -15,7 +15,6 @@ extern crate log;
 extern crate clap;
 extern crate crossbeam;
 extern crate ena;
-extern crate ethereum_newtypes;
 extern crate evmexec;
 extern crate hexdecode;
 extern crate num_cpus;
@@ -24,6 +23,7 @@ extern crate petgraph;
 extern crate rand;
 extern crate rayon;
 extern crate regex;
+extern crate revm;
 extern crate subprocess;
 extern crate tiny_keccak;
 extern crate uint;
@@ -37,15 +37,10 @@ mod se;
 mod test_helpers;
 
 use std::{
-    collections::HashSet,
-    fmt,
-    iter::FromIterator,
-    sync::{Arc, Mutex},
-    time::Duration,
+    collections::HashSet, fmt, iter::FromIterator, str::FromStr, sync::{Arc, Mutex}, time::Duration
 };
 
 use clap::{App, Arg};
-use ethereum_newtypes::{Address, Bytes, WU256};
 use parity_connector::BlockSelector;
 use rayon::prelude::*;
 use time::PreciseTime;
@@ -64,6 +59,13 @@ pub use crate::se::{
 };
 
 use crate::bytecode::Instr;
+
+use crate::revm::primitives::{Address, Bytes, U256};
+use crate::se::expr::bval::FVal;
+
+pub fn convert_fval_to_address(fval: &Arc<FVal>) -> Address {
+    Address::from_slice(&BitVec::as_revm_u256(fval).unwrap().to_be_bytes::<32>()[12..32])
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct AnalysisResult {
@@ -96,9 +98,7 @@ pub struct TimeoutAnalysis {
 
 pub fn symbolic_analysis(se_env: SeEnviroment, config: SeConfig, pool: Solvers) -> AnalysisResult {
     let mut analysis_result = AnalysisResult {
-        address: BitVec::as_bigint(&se_env.env.get_account(&se_env.to).addr)
-            .unwrap()
-            .into(),
+        address: convert_fval_to_address(&se_env.env.get_account(&se_env.to).addr),
         blocks: vec![],
         code_length: 0,
         executed: false,
@@ -334,15 +334,18 @@ fn update_analysis_result_from_env(ana: &mut AnalysisResult, env: &Env) {
                     };
                     LoadedAccount {
                         id: acc_ref.id.0,
-                        address: BitVec::as_bigint(&acc_ref.addr).unwrap().into(),
-                        balance: acc_ref.initial_balance.as_ref().cloned(),
+                        address: convert_fval_to_address(&acc_ref.addr),
+                        balance: acc_ref.initial_balance.as_ref().map(|b| revm::primitives::U256::from_str_radix(&b.to_string(), 10).unwrap()),
                         code: acc_ref.code().cloned().map(|v| v.into()),
                         code_length: acc_ref.get_codesize() as u32,
                         initial_storage: acc_ref
                             .initial_storage
                             .as_ref()
                             .cloned()
-                            .unwrap_or_else(Vec::new),
+                            .unwrap_or_else(Vec::new)
+                            .into_iter()
+                            .map(|(k, v)| (revm::primitives::U256::from_str_radix(&k.to_string(), 10).unwrap(), revm::primitives::U256::from_str_radix(&v.to_string(), 10).unwrap()))
+                            .collect(),
                         code_coverage,
                     }
                 })
@@ -518,12 +521,12 @@ impl fmt::Display for PrecompiledContracts {
 pub struct LoadedAccount {
     pub id: usize,
     pub address: Address,
-    pub balance: Option<WU256>,
+    pub balance: Option<U256>,
 
     pub code: Option<Bytes>,
     pub code_coverage: Option<f64>,
     pub code_length: u32,
-    pub initial_storage: Vec<(WU256, WU256)>,
+    pub initial_storage: Vec<(U256, U256)>,
 }
 
 impl std::hash::Hash for LoadedAccount {

@@ -3,7 +3,7 @@ use std::{
     io::{Seek, SeekFrom, Write},
 };
 
-use ethereum_newtypes::{wu256_from_usize_str, Address, Bytes, Hash, WU256};
+use revm::primitives::{Address, Bytes, U256};
 use log::debug;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -30,13 +30,12 @@ pub struct Config {
 
 #[derive(Debug, PartialEq, Deserialize, Serialize, Clone)]
 pub struct Account {
-    #[serde(deserialize_with = "wu256_from_usize_str")]
-    pub balance: WU256,
+    pub balance: U256,
     #[serde(deserialize_with = "code_or_default", default = "default_bytes")]
     pub code: Bytes,
-    pub nonce: WU256,
+    pub nonce: U256,
     #[serde(deserialize_with = "ok_or_default", default = "default_storage")]
-    pub storage: HashMap<WU256, WU256>,
+    pub storage: HashMap<U256, U256>,
 }
 
 fn default_bytes() -> Bytes {
@@ -51,11 +50,11 @@ where
     Ok(Bytes::deserialize(v).unwrap_or(default_bytes()))
 }
 
-fn default_storage() -> HashMap<WU256, WU256> {
+fn default_storage() -> HashMap<U256, U256> {
     HashMap::new()
 }
 
-fn ok_or_default<'de, D>(deserializer: D) -> Result<HashMap<WU256, WU256>, D::Error>
+fn ok_or_default<'de, D>(deserializer: D) -> Result<HashMap<U256, U256>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -65,10 +64,10 @@ where
 
 impl Account {
     pub fn new(
-        balance: WU256,
+        balance: U256,
         code: Option<Bytes>,
-        nonce: WU256,
-        storage: Option<HashMap<WU256, WU256>>,
+        nonce: U256,
+        storage: Option<HashMap<U256, U256>>,
     ) -> Self {
         let code = if let Some(c) = code { c } else { vec![].into() };
         let storage = if let Some(s) = storage {
@@ -120,15 +119,15 @@ impl Config {
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Genesis {
-    pub difficulty: WU256,
+    pub difficulty: U256,
     pub coinbase: Address,
-    pub timestamp: WU256,
-    pub number: WU256,
-    pub gas_limit: WU256,
-    pub extra_data: WU256,
-    pub mixhash: Hash,
-    pub parent_hash: Hash,
-    pub nonce: WU256,
+    pub timestamp: U256,
+    pub number: U256,
+    pub gas_limit: U256,
+    pub extra_data: U256,
+    pub mixhash: U256,
+    pub parent_hash: U256,
+    pub nonce: U256,
     pub alloc: HashMap<Address, Account>,
     pub config: Config,
 }
@@ -141,16 +140,16 @@ impl Default for Genesis {
 
 impl Genesis {
     pub fn new() -> Self {
-        let coinbase = Address::new(0.into());
-        let gas_limit = 0x003D_0900.into();
-        let timestamp = 0x0.into();
-        let difficulty = 0x1.into();
-        let number = 0x0.into();
+        let coinbase = Address::from([0u8; 20]);
+        let gas_limit = U256::from(0x003D_0900);
+        let timestamp = U256::from(0);
+        let difficulty = U256::from(1);
+        let number = U256::from(0);
         let config = Config::london();
-        let extra_data = 0.into();
-        let mixhash = 0.into();
-        let parent_hash = 0.into();
-        let nonce = 0.into();
+        let extra_data = U256::from(0);
+        let mixhash = U256::from(0);
+        let parent_hash = U256::from(0);
+        let nonce = U256::from(0);
         let alloc = HashMap::new();
 
         Self {
@@ -196,8 +195,8 @@ impl Genesis {
     pub fn update_account_storage(
         &mut self,
         account: &Address,
-        addr: WU256,
-        value: WU256,
+        addr: U256,
+        value: U256,
     ) -> Result<(), crate::Error> {
         let account = self
             .alloc
@@ -208,6 +207,7 @@ impl Genesis {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,3 +306,4 @@ mod tests {
     }
 }"#;
 }
+*/

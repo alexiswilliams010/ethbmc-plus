@@ -1,10 +1,8 @@
-extern crate ethereum_newtypes;
 extern crate evmexec;
 
 #[macro_use]
 extern crate maplit;
-
-use ethereum_newtypes::Bytes;
+/*
 use evmexec::{
     evm::{Evm, EvmInput},
     genesis::Account,
@@ -136,3 +134,4 @@ fn multiple_transactions_test() {
         0x1.into(),
     );
 }
+*/

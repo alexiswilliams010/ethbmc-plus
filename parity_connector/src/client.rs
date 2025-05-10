@@ -1,4 +1,4 @@
-use ethereum_newtypes::{Address, Bytes, WU256};
+use revm::primitives::{Address, Bytes, U256};
 
 use crate::types::*;
 
@@ -7,7 +7,7 @@ jsonrpc_client!(
     pub struct ParityClient {
     /// Returns the current blocknumber
     #[allow(non_snake_case)]
-    pub fn eth_blockNumber(&mut self) -> RpcRequest<WU256>;
+    pub fn eth_blockNumber(&mut self) -> RpcRequest<U256>;
 
     /// Returns the current coinbase
     #[allow(non_snake_case)]
@@ -19,7 +19,7 @@ jsonrpc_client!(
 
     /// Load the balance of a given account at the given blocknumber
     #[allow(non_snake_case)]
-    pub fn eth_getBalance(&mut self, address: Address, number: BlockSelector) -> RpcRequest<WU256>;
+    pub fn eth_getBalance(&mut self, address: Address, number: BlockSelector) -> RpcRequest<U256>;
 
     #[allow(non_snake_case)]
     pub fn eth_getStorage(&mut self, address: Address, number: BlockSelector) -> RpcRequest<Storage>;
@@ -33,7 +33,7 @@ mod tests {
     use serde_json as serde;
     use serde_json::Value as JsonValue;
     use std::io;
-    use uint::U256;
+    use revm::primitives::U256;
 
     use futures::{Future, future::done};
     type BoxFuture<T, E> = Box<dyn Future<Item = T, Error = E> + Send>;
@@ -67,6 +67,6 @@ mod tests {
     fn eth_block_number_test() {
         let mut client = ParityClient::new(ParityTestTransport);
         let res = client.eth_blockNumber().call().unwrap();
-        assert_eq!(res.0, U256::from_dec_str("6068008").unwrap());
+        assert_eq!(res, U256::from_str_radix("5c9728", 16).unwrap());
     }
 }

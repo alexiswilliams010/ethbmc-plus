@@ -1,4 +1,3 @@
-extern crate ethereum_newtypes;
 extern crate hexdecode;
 extern crate regex;
 extern crate serde;
@@ -15,7 +14,6 @@ extern crate serde_derive;
 #[cfg(test)]
 extern crate maplit;
 
-pub mod evm;
 pub mod evmtrace;
 pub mod genesis;
 pub mod revm;

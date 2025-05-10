@@ -1,7 +1,4 @@
-extern crate ethereum_newtypes;
 extern crate futures;
-extern crate uint;
-
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -23,7 +20,7 @@ mod types;
 pub use types::{Block, BlockSelector};
 
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
-use uint::U256;
+use revm::primitives::{Address, U256};
 
 use client::ParityClient;
 
@@ -48,7 +45,7 @@ impl ParityConnector {
     }
 
     pub fn blocknumber(&mut self) -> U256 {
-        self.client.eth_blockNumber().call().unwrap().0
+        self.client.eth_blockNumber().call().unwrap()
     }
 
     pub fn block_by_number(&mut self, number: BlockSelector) -> Block {
@@ -58,29 +55,29 @@ impl ParityConnector {
             .unwrap()
     }
 
-    pub fn code(&mut self, addr: U256, block: BlockSelector) -> Vec<u8> {
+    pub fn code(&mut self, addr: Address, block: BlockSelector) -> Vec<u8> {
         self.client
-            .eth_getCode(addr.into(), block)
+            .eth_getCode(addr, block)
             .call()
             .unwrap()
             .0
+            .to_vec()
     }
 
-    pub fn balance(&mut self, addr: U256, block: BlockSelector) -> U256 {
+    pub fn balance(&mut self, addr: Address, block: BlockSelector) -> U256 {
         self.client
-            .eth_getBalance(addr.into(), block)
+            .eth_getBalance(addr, block)
             .call()
             .unwrap()
-            .0
     }
 
-    pub fn storage(&mut self, addr: U256, block: BlockSelector) -> Option<Vec<(U256, U256)>> {
-        let stor = self.client.eth_getStorage(addr.into(), block).call().ok()?;
+    pub fn storage(&mut self, addr: Address, block: BlockSelector) -> Option<Vec<(U256, U256)>> {
+        let stor = self.client.eth_getStorage(addr, block).call().ok()?;
         Some(
             stor.0
                 .into_iter()
                 .map(|v| v.into_iter())
-                .map(|mut v| (v.next().unwrap().0, v.next().unwrap().0))
+                .map(|mut v| (v.next().unwrap(), v.next().unwrap()))
                 .collect(),
         )
     }

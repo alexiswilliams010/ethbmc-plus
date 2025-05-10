@@ -16,10 +16,6 @@ log = "0.4"
 lazy_static = "1.1"
 revm = { version = "22.0.1", features = ["serde", "serde-json"] }
 
-[dependencies.ethereum-newtypes]
-version = "0.1"
-path = "ethereum-newtypes" 
-
 [dependencies.uint]
 version = "0.4"
 features = ["std"]
