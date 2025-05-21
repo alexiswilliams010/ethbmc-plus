@@ -8,7 +8,22 @@ edition = "2024"
 path = "src/lib.rs"
 
 [dependencies]
+alloy-json-abi = { workspace = true }
+clap = { version = "4", features = ["derive", "env", "unicode", "wrap_help"] }
+clap_complete = "4"
+clap_complete_fig = "4"
+eyre = { workspace = true }
+foundry-compilers = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }
 revm = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
 
 # The forge dependency is not a published crate
 forge = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
+foundry-cli = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
+foundry-common = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
+foundry-config = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
+foundry-evm = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
+foundry-linking = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }

@@ -10,6 +10,7 @@ members = [
 debug = true
 
 [workspace.dependencies]
+alloy-json-abi = "1.0"
 reqwest = "0.9.4"
 rayon = "1.0.2"
 lazy_static = "1.1.0"
@@ -21,6 +22,7 @@ chrono = "0.4.6"
 petgraph = "0.4.13"
 subprocess = "0.1"
 ena = "0.10.1"
+eyre = "0.6"
 yaml-rust = "0.4.2"
 bitflags = "1.0.4"
 fern = "0.5.6"
@@ -34,9 +36,12 @@ num_cpus = "1.8.0"
 rand = "0.5.5"
 serde_json = "1.0.140"
 tempfile = "3.0"
+tracing = "0.1"
+tokio = "1"
 uint = { version = "0.4", features = ["std"] }
 parking_lot = "0.7.1"
 revm = { version = "23.1.0", features = ["serde", "serde-json"] }
+foundry-compilers = { version = "0.16.1", default-features = false }
 
 [patch.crates-io]
 # patch will remain until https://github.com/bluealloy/revm/pull/2527 is merged and tagged
