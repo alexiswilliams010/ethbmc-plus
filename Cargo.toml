@@ -2,8 +2,42 @@
 resolver = "3"
 members = [
     "esvm",
+    "evmexec",
+    "forge-runner",
 ]
 
 [profile.bench]
 debug = true
 
+[workspace.dependencies]
+reqwest = "0.9.4"
+rayon = "1.0.2"
+lazy_static = "1.1.0"
+regex = "1.0.5"
+tiny-keccak = "1.4.2"
+log = "0.4.5"
+time = "0.1"
+chrono = "0.4.6"
+petgraph = "0.4.13"
+subprocess = "0.1"
+ena = "0.10.1"
+yaml-rust = "0.4.2"
+bitflags = "1.0.4"
+fern = "0.5.6"
+serde = "1.0.219"
+serde_derive = "1.0.219"
+clap = "2.32.0"
+hexdecode = "0.2"
+crossbeam-channel = "0.5"
+crossbeam = "0.8"
+num_cpus = "1.8.0"
+rand = "0.5.5"
+serde_json = "1.0.140"
+tempfile = "3.0"
+uint = { version = "0.4", features = ["std"] }
+parking_lot = "0.7.1"
+revm = { version = "23.1.0", features = ["serde", "serde-json"] }
+
+[patch.crates-io]
+# patch will remain until https://github.com/bluealloy/revm/pull/2527 is merged and tagged
+revm = { git = "https://github.com/bluealloy/revm.git", rev = "b5808253" }

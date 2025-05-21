@@ -1,6 +1,6 @@
 use std::io::{Seek, SeekFrom, Write};
 
-use revm::primitives::{Address, Bytes, U256, HashMap};
+use revm::primitives::{Address, Bytes, U256, HashMap, hash_map::RandomState};
 use log::debug;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -32,7 +32,7 @@ pub struct Account {
     pub code: Bytes,
     pub nonce: U256,
     #[serde(deserialize_with = "ok_or_default", default = "default_storage")]
-    pub storage: HashMap<U256, U256>,
+    pub storage: HashMap<U256, U256, RandomState>,
 }
 
 fn default_bytes() -> Bytes {
@@ -47,18 +47,18 @@ where
     Ok(Bytes::deserialize(v).unwrap_or(default_bytes()))
 }
 
-fn default_storage() -> HashMap<U256, U256> {
-    HashMap::new()
+fn default_storage() -> HashMap<U256, U256, RandomState> {
+    HashMap::with_hasher(RandomState::new())
 }
 
-fn ok_or_default<'de, D>(deserializer: D) -> Result<HashMap<U256, U256>, D::Error>
+fn ok_or_default<'de, D>(deserializer: D) -> Result<HashMap<U256, U256, RandomState>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let v: Value = Deserialize::deserialize(deserializer)?;
     match v {
         Value::Object(map) => {
-            let mut storage = HashMap::new();
+            let mut storage = HashMap::with_hasher(RandomState::new());
             for (key, value) in map {
                 let key = U256::from_str_radix(&key, 16)
                     .map_err(|_| serde::de::Error::custom("Invalid storage key"))?;
@@ -77,13 +77,13 @@ impl Account {
         balance: U256,
         code: Option<Bytes>,
         nonce: U256,
-        storage: Option<HashMap<U256, U256>>,
+        storage: Option<HashMap<U256, U256, RandomState>>,
     ) -> Self {
         let code = if let Some(c) = code { c } else { vec![].into() };
         let storage = if let Some(s) = storage {
             s
         } else {
-            HashMap::new()
+            HashMap::with_hasher(RandomState::new())
         };
         Self {
             balance,
@@ -138,7 +138,7 @@ pub struct Genesis {
     pub mixhash: U256,
     pub parent_hash: U256,
     pub nonce: U256,
-    pub alloc: HashMap<Address, Account>,
+    pub alloc: HashMap<Address, Account, RandomState>,
     pub config: Config,
 }
 
@@ -160,7 +160,7 @@ impl Genesis {
         let mixhash = U256::from(0);
         let parent_hash = U256::from(0);
         let nonce = U256::from(0);
-        let alloc = HashMap::new();
+        let alloc = HashMap::with_hasher(RandomState::new());
 
         Self {
             coinbase,
@@ -256,14 +256,14 @@ mod tests {
 
     #[test]
     fn deserialize_accounts() {
-        let states: HashMap<Address, Account> = serde_json::from_str(&STATE_EXAMPLE).unwrap();
-        let mut correct = HashMap::new();
+        let states: HashMap<Address, Account, RandomState> = serde_json::from_str(&STATE_EXAMPLE).unwrap();
+        let mut correct = HashMap::with_hasher(RandomState::new());
 
         let acc_1 = Account {
             balance: U256::from(0),
             nonce : U256::from(1),
             code: Bytes::from_str("60806040526004361061004b5763ffffffff7c01000000000000000000000000000000000000000000000000000000006000350416637c52e3258114610050578063e9ca826c14610080575b600080fd5b34801561005c57600080fd5b5061007e73ffffffffffffffffffffffffffffffffffffffff60043516610095565b005b34801561008c57600080fd5b5061007e610145565b60005473ffffffffffffffffffffffffffffffffffffffff1633146100b657fe5b600154604080517f338ccd7800000000000000000000000000000000000000000000000000000000815273ffffffffffffffffffffffffffffffffffffffff84811660048301529151919092169163338ccd7891602480830192600092919082900301818387803b15801561012a57600080fd5b505af115801561013e573d6000803e3d6000fd5b5050505050565b6000805473ffffffffffffffffffffffffffffffffffffffff1916331790555600a165627a7a72305820b376cbf41ad45cba2c20890893f93f24efe850bf7eaf35fd12a0474576b4ac2d0029").unwrap(),
-            storage: HashMap::new(),
+            storage: HashMap::with_hasher(RandomState::new()),
         };
         correct.insert(Address::from_str("0x0ad62f08b3b9f0ecc7251befbeff80c9bb488fe9").unwrap(), acc_1);
 
@@ -271,7 +271,7 @@ mod tests {
             balance: U256::from(16),
             nonce: U256::from(1),
             code: vec![].into(),
-            storage: HashMap::new(),
+            storage: HashMap::with_hasher(RandomState::new()),
         };
         correct.insert(Address::from_str("0x0dfa72de72f96cf5b127b070e90d68ec9710797c").unwrap(), acc_2);
 
@@ -279,9 +279,11 @@ mod tests {
             balance: U256::from(1048576),
             nonce: U256::from(1),
             code: Bytes::from_str("606060405260043610603e5763ffffffff7c0100000000000000000000000000000000000000000000000000000000600035041663338ccd7881146043575b600080fd5b3415604d57600080fd5b606c73ffffffffffffffffffffffffffffffffffffffff60043516606e565b005b6000543373ffffffffffffffffffffffffffffffffffffffff908116911614609257fe5b8073ffffffffffffffffffffffffffffffffffffffff166108fc3073ffffffffffffffffffffffffffffffffffffffff16319081150290604051600060405180830381858888f19350505050151560e857600080fd5b505600a165627a7a72305820d94e263975863b2024dc4bfaba0287941709bc576381ae567f9683d8fc2052940029").unwrap(),
-            storage: hashmap!(
-                U256::from(0) => U256::from_str_radix("940ad62f08b3b9f0ecc7251befbeff80c9bb488fe9", 16).unwrap(),
-            ),
+            storage: {
+                let mut map = HashMap::with_hasher(RandomState::new());
+                map.insert(U256::from(0), U256::from_str_radix("940ad62f08b3b9f0ecc7251befbeff80c9bb488fe9", 16).unwrap());
+                map
+            },
         };
         correct.insert(Address::from_str("0x86c249452ee469d839942e05b8492dbb9f9c70ac").unwrap(), acc_3);
 

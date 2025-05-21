@@ -1,0 +1,14 @@
+[package]
+name = "forge-runner"
+version = "0.0.1"
+authors = [""]
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+revm = { workspace = true }
+
+# The forge dependency is not a published crate
+forge = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
