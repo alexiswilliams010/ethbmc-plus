@@ -1,5 +1,4 @@
 use crate::custom_runner::{CustomMultiContractBuilder, CustomMultiContractRunner};
-use crate::filter::{CustomFilterArgs, ProjectPathsAwareFilter};
 
 use forge::{
     cmd::{
@@ -21,7 +20,6 @@ use forge::{
         TraceKind,
     },
 };
-use foundry_config::Config;
 use foundry_cli::utils::LoadConfig;
 use foundry_common::{
     sh_println,
@@ -31,7 +29,6 @@ use foundry_common::{
 };
 use foundry_compilers::{
     compilers::{multi::MultiCompiler},
-    ProjectCompileOutput,
 };
 use foundry_evm::{
     traces::identifier::TraceIdentifiers,
@@ -42,7 +39,7 @@ use std::{
     time::Instant,
     sync::{mpsc::channel},
 };
-use eyre::{bail, Result};
+use eyre::Result;
 use tracing::debug;
 use clap::Parser;
 
@@ -53,9 +50,6 @@ pub struct CustomTestArgs {
     #[command(flatten)]
     pub test: TestArgs,
 
-    #[command(flatten)]
-    pub filter: CustomFilterArgs,
-
     // TODO: add custom options for propagating symbolic execution args
 }
 
@@ -63,20 +57,6 @@ impl CustomTestArgs {
     pub async fn run(self) -> Result<TestOutcome> {
         debug!(target: "forge::test", "executing custom test command");
         self.execute_tests().await
-    }
-
-    /// Returns the flattened [`FilterArgs`] arguments merged with [`Config`].
-    /// Loads and applies filter from file if only last test run failures performed.
-    pub fn filter(&self, config: &Config) -> Result<ProjectPathsAwareFilter> {
-        let mut filter = self.filter.clone();
-        if filter.filter_path_pattern.is_some() {
-            if self.test.path.is_some() {
-                bail!("Can not supply both --match-path and |path|");
-            }
-        } else {
-            filter.filter_path_pattern = self.test.path.clone();
-        }
-        Ok(filter.merge_with_config(config))
     }
 
     /// Executes all the tests in the project.
@@ -98,10 +78,10 @@ impl CustomTestArgs {
         // Set up the project.
         let project = config.project()?;
 
-        let internal_filter = self.test.filter(&config)?;
-        debug!(target: "forge::test", ?internal_filter, "using filter");
+        let filter = self.test.filter(&config)?;
+        debug!(target: "forge::test", ?filter, "using filter");
 
-        let sources_to_compile = self.test.get_sources_to_compile(&config, &internal_filter)?;
+        let sources_to_compile = self.test.get_sources_to_compile(&config, &filter)?;
 
         let compiler = ProjectCompiler::new()
             .dynamic_test_linking(config.dynamic_test_linking)
@@ -122,7 +102,7 @@ impl CustomTestArgs {
 
         // Prepare the test builder.
         let config = Arc::new(config);
-        let runner: CustomMultiContractRunner = CustomMultiContractBuilder::new(config.clone())
+        let mut runner: CustomMultiContractRunner = CustomMultiContractBuilder::new(config.clone())
             .set_decode_internal(decode_internal)
             .initial_balance(evm_opts.initial_balance)
             .evm_spec(config.evm_spec_id())
@@ -131,27 +111,12 @@ impl CustomTestArgs {
             .enable_isolation(evm_opts.isolate)
             .build::<MultiCompiler>(project_root, &output, env, evm_opts)?;
 
-        let pub_filter = self.filter(&config)?;
-        let outcome = self.run_tests(runner, config, verbosity, &pub_filter, &output).await?;
-
-        Ok(outcome)
-    }
-
-    /// Run all tests that matches the filter predicate from a test runner
-    pub async fn run_tests(
-        &self,
-        mut runner: CustomMultiContractRunner,
-        config: Arc<Config>,
-        verbosity: u8,
-        filter: &ProjectPathsAwareFilter,
-        output: &ProjectCompileOutput,
-    ) -> eyre::Result<TestOutcome> {
         debug!(target: "forge::test", "running all tests");
 
         // If we need to render to a serialized format, we should not print anything else to stdout.
         let silent = shell::is_json() || self.test.summary && shell::is_json();
 
-        let num_filtered = runner.inner.matching_test_functions(filter).count();
+        let num_filtered = runner.inner.matching_test_functions(&filter).count();
 
         // If exactly one test matched, we enable full tracing.
         let decode_internal = if num_filtered == 1 {
@@ -185,7 +150,7 @@ impl CustomTestArgs {
 
         if decode_internal {
             let sources =
-                ContractSources::from_project_output(output, &config.root, Some(&libraries))?;
+                ContractSources::from_project_output(&output, &config.root, Some(&libraries))?;
             builder = builder.with_debug_identifier(DebugTraceIdentifier::new(sources));
         }
         let mut decoder = builder.build();
