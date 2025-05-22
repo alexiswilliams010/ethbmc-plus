@@ -24,7 +24,7 @@ revm = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
-# The forge dependency is not a published crate
+# The foundry-based dependencies are not published crates
 forge = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
 foundry-cli = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
 foundry-common = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
