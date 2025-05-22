@@ -4,6 +4,10 @@ version = "0.0.1"
 authors = [""]
 edition = "2024"
 
+[[bin]]
+name = "forge-tester"
+path = "bin/main.rs"
+
 [lib]
 path = "src/lib.rs"
 

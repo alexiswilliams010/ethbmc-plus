@@ -1,5 +1,5 @@
 use crate::custom_runner::{CustomMultiContractBuilder, CustomMultiContractRunner};
-use crate::filter::{FilterArgs, ProjectPathsAwareFilter};
+use crate::filter::{CustomFilterArgs, ProjectPathsAwareFilter};
 
 use forge::{
     cmd::{
@@ -54,7 +54,7 @@ pub struct CustomTestArgs {
     pub test: TestArgs,
 
     #[command(flatten)]
-    pub filter: FilterArgs,
+    pub filter: CustomFilterArgs,
 
     // TODO: add custom options for propagating symbolic execution args
 }
@@ -69,12 +69,12 @@ impl CustomTestArgs {
     /// Loads and applies filter from file if only last test run failures performed.
     pub fn filter(&self, config: &Config) -> Result<ProjectPathsAwareFilter> {
         let mut filter = self.filter.clone();
-        if filter.path_pattern.is_some() {
+        if filter.filter_path_pattern.is_some() {
             if self.test.path.is_some() {
                 bail!("Can not supply both --match-path and |path|");
             }
         } else {
-            filter.path_pattern = self.test.path.clone();
+            filter.filter_path_pattern = self.test.path.clone();
         }
         Ok(filter.merge_with_config(config))
     }
