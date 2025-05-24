@@ -16,6 +16,14 @@ use std::io::{Write, BufRead};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+// For providing counterexamples in Foundry
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct ForgeInput {
+    pub input_data: String,
+    pub sender: String,
+    pub receiver: String,
+}
+
 #[derive(Debug, Clone)]
 struct FlushWriter {
     buffer: Rc<RefCell<Vec<u8>>>,

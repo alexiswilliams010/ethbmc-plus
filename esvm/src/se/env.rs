@@ -7,7 +7,10 @@ use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng};
-use revm::primitives::{Address, U256};
+use revm::{
+    state::{Account as RevmAccount},
+    primitives::{Address, U256, HashMap as RevmHashMap, hash_map::RandomState}
+};
 use tiny_keccak::Keccak;
 use yaml_rust::Yaml;
 
@@ -208,6 +211,82 @@ impl SeEnviroment {
             memory,
         }
     }
+
+    // Setting up initial state from Foundry's compilation info
+    pub fn from_foundry(
+        analyzed_address: String,
+        signature: String,
+        storage_info: RevmHashMap<Address, RevmAccount, RandomState>,
+    ) -> Self {
+        let mut env = Env::new();
+        let mut memory = symbolic_memory::new_memory();
+        let attacker = env.new_attacker_account(&mut memory);
+        let _hijack = env.new_hijack_account(&mut memory);
+        let mut victim = AccountId(0);
+        let mut id;
+
+        let victim_addr = const_vec(&hexdecode::decode(analyzed_address.as_bytes()).unwrap());
+
+        env.func_selector = Some(signature);
+
+        for (addr, acc) in storage_info {
+            let account_addr = const_vec(addr.as_slice());
+            let account_balance = const_usize(acc.info.balance.to_string().parse::<usize>().unwrap());
+
+            let name = if account_addr == victim_addr {
+                "victim"
+            } else {
+                "other"
+            };
+
+            let code = acc.info.code.as_ref().map(|c| c.bytes().to_vec());
+
+            id = env.new_account(
+                &mut memory,
+                &name,
+                &account_addr,
+                code,
+                &account_balance,
+            );
+
+            let mut initial_storage = Vec::new();
+            let account = env.get_account_mut(&id);
+            for (slot, val) in acc.storage {
+                let addr = const_vec(slot.to_string().as_bytes());
+                let val = const_vec(val.present_value().to_string().as_bytes());
+
+                initial_storage.push((
+                    BitVec::as_revm_u256(&addr).unwrap(),
+                    BitVec::as_revm_u256(&val).unwrap(),
+                ));
+
+                account.storage = word_write(&mut memory, account.storage, &addr, &val);
+            }
+
+            account.initial_storage = Some(initial_storage);
+
+            env.get_account_mut(&id).initial_balance =
+                Some(BitVec::as_revm_u256(&account_balance).unwrap());
+
+            // save id
+            let mut loaded_accounts = env.loaded_accounts.unwrap_or_else(Vec::new);
+            loaded_accounts.push(id);
+            env.loaded_accounts = Some(loaded_accounts);
+
+            if account_addr == victim_addr {
+                victim = id;
+            }
+        }
+
+        let memory = Arc::new(memory);
+
+        SeEnviroment {
+            env,
+            from: attacker,
+            to: victim,
+            memory,
+        }
+    }
 }
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
@@ -277,6 +356,9 @@ pub struct Env {
 
     addresses: HashMap<BVal, AccountId>,
 
+    /// Selector of a function to be analyzed
+    pub func_selector: Option<String>,
+
     /// Transactions present in the enviroment
     transactions: HashMap<TxId, Transaction>,
     tx_counter: usize,
@@ -300,6 +382,8 @@ impl Env {
         let accounts = HashMap::new();
         let acc_counter = 0;
 
+        let func_selector = None;
+
         let transactions = HashMap::new();
         let tx_counter = 0;
         let block = Block::new();
@@ -322,6 +406,7 @@ impl Env {
             acc_counter,
             tx_counter,
             addresses,
+            func_selector,
             constraints,
             blocknumbers,
             loaded_accounts,
@@ -329,50 +414,6 @@ impl Env {
             blocks,
             blockhashes,
         }
-    }
-
-    pub fn from_chain() -> Self {
-        // let (mut client, block) = create_parity_client();
-        // let initial_block = client.block_by_number(block);
-        // let analysis_depth = CONFIG.read().unwrap().message_bound;
-        // let start_block = initial_block.number().0 - analysis_depth;
-        // let block = client.block_by_number(BlockSelector::Specific(start_block.as_usize()));
-
-        let mut blockhashes: VecDeque<BVal> = VecDeque::with_capacity(256);
-        blockhashes.push_back(const_usize(0));
-        /*
-        for i in 1..256 {
-            blockhashes.push_back(const_u256(
-                client
-                    .block_by_number(BlockSelector::Specific(start_block.as_usize() - i))
-                    .hash()
-                    .0,
-            ));
-        }
-        assert!(blockhashes.len() == 256, "Len: {}", blockhashes.len()); // assert we didn't off by one
-        */
-
-        let mut env = Env::new();
-        env.blockhashes = Some(blockhashes);
-        /*
-        env.blocknumbers = Some(vec![start_block.as_usize()]);
-        env.latest_block_mut().blocknumber = Some(start_block.as_usize());
-        env.latest_block_mut().gas_limit = const_u256(block.gas_limit().0);
-        env.latest_block_mut().difficulty = const_u256(block.difficulty().0);
-        env.latest_block_mut().number = const_u256(block.number().0);
-        env.latest_block_mut().timestamp = const_u256(block.timestamp().0);
-        env.latest_block_mut().coinbase = const_u256(block.miner().0);
-        env.latest_block_mut().blockhash = const_u256(block.hash().0);
-        env.constraints = vec![
-            lt(&env.latest_block().gasprice, &const256(MAX_GASPRICE)),
-            lt(&env.latest_block().mem_size, &const_usize(100_000)),
-        ];
-        debug!(
-            "Successfully loaded initial block parameter: {:?}",
-            env.constraints
-        );
-        */
-        env
     }
 
     // this function is a disgrace, but it works, soooo ehh..?
@@ -659,6 +700,10 @@ impl Env {
     pub fn get_tx_mut(&mut self, id: &TxId) -> &mut Transaction {
         self.transactions.get_mut(id).unwrap()
     }
+
+    pub fn get_selector(&self) -> &Option<String> {
+        &self.func_selector
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -931,9 +976,6 @@ impl Into<genesis::Account> for Account {
 mod tests {
     use super::*;
 
-    // use crate::se::symbolic_analysis::ParityInfo;
-    // use std::env;
-
     use yaml_rust::YamlLoader;
 
     #[test]
@@ -995,75 +1037,6 @@ victim: 0x780771f6a176a937e45d491d180df424d9e15fa6";
             &se_env.memory[vic.storage],
         ));
     }
-
-    // this test needs a parity id set in env vars
-    /*
-    #[test]
-    #[ignore]
-    fn parity_load_from_blockchain_test() {
-        let ip = env::var("PARITY_IP").unwrap();
-        let code: Vec<u8> = vec![
-            0x60, 0x60, 0x60, 0x40, 0x52, 0x36, 0x15, 0x60, 0x27, 0x57, 0x60, 0xe0, 0x60, 0x02,
-            0x0a, 0x60, 0x00, 0x35, 0x04, 0x63, 0x71, 0x8d, 0xa7, 0xee, 0x81, 0x14, 0x60, 0x5b,
-            0x57, 0x80, 0x63, 0xf7, 0x26, 0x0d, 0x3e, 0x14, 0x60, 0x7f, 0x57, 0x5b, 0x60, 0x7d,
-            0x60, 0x00, 0x80, 0x54, 0x73, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x90, 0x81, 0x16,
-            0x91, 0x90, 0x30, 0x16, 0x31, 0x60, 0x60, 0x82, 0x81, 0x81, 0x81, 0x85, 0x88, 0x83,
-            0xf1, 0x50, 0x50, 0x50, 0x50, 0x50, 0x56, 0x5b, 0x60, 0x00, 0x80, 0x54, 0x73, 0xff,
-            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff, 0xff, 0x19, 0x16, 0x60, 0x04, 0x35, 0x17, 0x90, 0x55, 0x5b,
-            0x00, 0x5b, 0x60, 0x9d, 0x60, 0x00, 0x54, 0x73, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0x16, 0x81, 0x56, 0x5b, 0x60, 0x60, 0x90, 0x81, 0x52, 0x60, 0x20, 0x90, 0xf3,
-        ];
-        let balance = const_usize(0);
-
-        // init global config with parity
-        let parity = ParityInfo(ip, 8545, BlockSelector::Specific(6281955));
-        CONFIG.write().unwrap().parity = Some(parity);
-        let mut env = Env::new();
-        let mut memory = symbolic_memory::new_memory();
-
-        // 0x9051bF7a07B65352e3646D0e54fc2fd3CDb87c16
-        let addr = U256::from_dec_str("823917711331026886531467843090272541820287745046").unwrap();
-        let id = env
-            .try_load_account_from_chain(&mut memory, &const_u256(addr))
-            .unwrap();
-        {
-            let acc = env.get_account(&id);
-
-            assert_eq!(&code, acc.code.as_ref().unwrap());
-            assert_eq!(balance, acc.balance);
-        }
-
-        // 0x281055Afc982d96fAB65b3a49cAc8b878184Cb16
-        let balance = const_u256(U256::from_dec_str("1538423056629367645420298").unwrap());
-        let addr = U256::from_dec_str("228723907117702717599418931794880362350572260118").unwrap();
-        let id = env
-            .try_load_account_from_chain(&mut memory, &const_u256(addr))
-            .unwrap();
-        {
-            let acc = env.get_account(&id);
-
-            assert_eq!(None, acc.code.as_ref());
-            assert_eq!(balance, acc.balance);
-        }
-
-        // "incorrect address"
-        let balance = const_usize(0);
-        let addr = U256::from_dec_str("12345").unwrap();
-        let id = env
-            .try_load_account_from_chain(&mut memory, &const_u256(addr))
-            .unwrap();
-
-        let acc = env.get_account(&id);
-
-        assert_eq!(None, acc.code.as_ref());
-        assert_eq!(balance, acc.balance);
-
-        CONFIG.write().unwrap().parity = None;
-    }
-    */
 
     #[test]
     fn update_env_for_tx_test() {

@@ -18,11 +18,13 @@ clap = { version = "4", features = ["derive", "env", "unicode", "wrap_help"] }
 clap_complete = "4"
 clap_complete_fig = "4"
 eyre = { workspace = true }
+foldhash = "0.1.5"
 foundry-compilers = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
 revm = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0.140"
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

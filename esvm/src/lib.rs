@@ -58,8 +58,13 @@ pub use crate::se::{
 
 use crate::bytecode::Instr;
 
-use crate::revm::primitives::{Address, Bytes, U256};
+use revm::{
+    state::{Account},
+    primitives::{Address, Bytes, U256, HashMap, hash_map::RandomState}
+};
 use crate::se::expr::bval::FVal;
+
+use evmexec::evm::ForgeInput;
 
 pub fn convert_fval_to_address(fval: &Arc<FVal>) -> Address {
     Address::from_slice(&BitVec::as_revm_u256(fval).unwrap().to_be_bytes::<32>()[12..32])
@@ -92,6 +97,105 @@ pub enum AnalysisSuccess {
 pub struct TimeoutAnalysis {
     pub address: Address,
     pub timeout: Duration,
+}
+
+// TODO: Eventually this will be replaced with the SymbolicConfig struct but the different versions of clap are causing issues
+#[derive(Serialize, Deserialize)]
+pub struct ForgeConfig {
+    /// The flag indicating whether to assume that default storage values are symbolic
+    pub symbolic_storage: bool,
+    /// The flag indicating whether to perform geth-based concrete counterexample validation
+    pub concrete_validation: bool,
+    /// The SMT solver to be used during symbolic analysis {0: z3, 1: boolector, 2: yices2}
+    pub solver: u8,
+    /// The timeout (ms) for the solver
+    pub solver_timeout: u32,
+    /// The number of loops to be unrolled in a single execution
+    pub loop_bound: u32,
+    /// The number of calls symbolically analyzed in a sequence
+    pub call_bound: u32,
+}
+
+// Symbolically executing Foundry tests
+pub fn foundry_analysis(
+    analyzed_address: String,
+    signature: String,
+    storage_info: HashMap<Address, Account, RandomState>,
+    test_options: String,
+) -> Option<(String, String, String)> {
+    let se_env = SeEnviroment::from_foundry(analyzed_address, signature, storage_info);
+
+    let forge_config: ForgeConfig = serde_json::from_str(&test_options).unwrap();
+
+    let pool = match forge_config.solver {
+        0 => Solvers::Z3 {
+            count: CONFIG.read().unwrap().cores,
+            timeout: usize::try_from(forge_config.solver_timeout).unwrap(),
+        },
+        1 => Solvers::Boolector {
+            count: CONFIG.read().unwrap().cores,
+            timeout: usize::try_from(forge_config.solver_timeout).unwrap(),
+        },
+        2 => Solvers::Yice {
+            count: CONFIG.read().unwrap().cores,
+            timeout: usize::try_from(forge_config.solver_timeout).unwrap(),
+        },
+        _ => panic!("Supplied incorrect solver index"),
+    };
+
+    {
+        let mut config = CONFIG.write().unwrap();
+        // Symexec config
+        config.loop_bound = usize::try_from(forge_config.loop_bound).unwrap();
+        config.message_bound = usize::try_from(forge_config.call_bound).unwrap();
+        config.no_verify = !forge_config.concrete_validation;
+        config.symbolic_storage = forge_config.symbolic_storage;
+
+        // Default values:
+        config.call_depth_limit = 5;
+        config.arithmetic_simplification = true;
+        // Using concrete calldatacopy
+        config.concrete_copy = true;
+        config.concrete_load = true;
+    }
+
+    let conf = CONFIG.read().unwrap().clone();
+    let res = symbolic_analysis(se_env, conf, pool);
+
+    let counterexamples: Vec<Vec<ForgeInput>> = if res.attacks.is_some() {
+        res.attacks
+            .unwrap()
+            .into_iter()
+            .map(|a| a.counterexamples)
+            .into_iter()
+            .map(|c| if c.is_some() { c.unwrap() } else { vec![] })
+            .collect()
+    } else {
+        vec![]
+    };
+
+    // TODO: this is returning the first counterexample for parsing in Foundry and not all counterexamples
+    if let Some(counterexample) = counterexamples.get(0) {
+        let sender = counterexample[0].sender.clone();
+        let receiver = counterexample[0].receiver.clone();
+        let input_data = counterexample[0].input_data.clone();
+
+        let result: (String, String, String) = (sender, receiver, input_data);
+        return Some(result);
+    }
+
+    // TODO: this is returning all counterexamples for parsing in Foundry
+    /*  let result: Vec<Vec<(String, String, String)>> = counterexamples
+        .into_iter()
+        .map(|a| {
+            a.into_iter()
+                .map(|input| (input.sender, input.receiver, input.input_data))
+                .collect()
+        })
+        .collect();
+    */
+
+    None
 }
 
 pub fn symbolic_analysis(se_env: SeEnviroment, config: SeConfig, pool: Solvers) -> AnalysisResult {

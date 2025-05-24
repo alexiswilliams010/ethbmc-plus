@@ -21,8 +21,9 @@ use foundry_common::{
 };
 use foundry_config::{Config, InlineConfig};
 use foundry_evm::{
-    executors::{Executor, ITest},
-    traces::{TraceMode, InternalTraceMode},
+    executors::{Executor, ITest, RawCallResult},
+    fuzz::{BaseCounterExample, CounterExample},
+    traces::{TraceMode, InternalTraceMode, load_contracts, TraceKind},
     decode::RevertDecoder,
     backend::Backend,
     fork::CreateFork,
@@ -30,15 +31,14 @@ use foundry_evm::{
     Env,
 };
 use foundry_linking::{LinkOutput, Linker};
-use revm::primitives::{Address, U256, hardfork::SpecId, address, Bytes};
+use revm::{
+    state::{Account, EvmStorageSlot},
+    primitives::{Address, U256, hardfork::SpecId, address, Bytes, HashMap, hash_map::RandomState},
+};
 use alloy_json_abi::Function;
 use serde::{Serialize, Deserialize};
 use std::{
-    borrow::{Cow, Borrow},
-    collections::BTreeMap,
-    sync::{mpsc, Arc},
-    time::Instant,
-    path::Path,
+    borrow::{Borrow, Cow}, collections::BTreeMap, path::Path, str::FromStr, sync::{mpsc, Arc}, time::Instant
 };
 use eyre::Result;
 use rayon::prelude::*;
@@ -597,13 +597,56 @@ impl<'a> CustomFunctionRunner<'a> {
             return self.result.clone();
         }
 
-        // Run current unit test.
-        // TODO: This is where the symbolic execution happens.
+        // Retrieve any state that may have been added via a setUp function.
+        let mut setup_accounts: HashMap<Address, Account, RandomState> = HashMap::with_hasher(RandomState::new());
+        let db = self.executor.backend().mem_db();
+        for (address, account) in db.cache.accounts.iter() {
+            println!("bytecode: {:?}", account.info.code.as_ref().unwrap().bytes());
+            let new_account: Account = Account::default()
+                .with_info(account.info.clone())
+                .with_storage(account.storage.iter().map(|(k, v)| (k.clone(), EvmStorageSlot::new(v.clone()))));
+
+            println!("address: {}", address);
+            setup_accounts.insert(address.clone(), new_account);
+        }
+
+        // Run symbolic execution test.
+        let signature = func.selector().to_string();
+        let symbolic_result = esvm::foundry_analysis(
+            self.address.to_string(),
+            signature,
+            setup_accounts,
+            serde_json::to_string(&self.cr.symbolic).unwrap(),
+        );
 
         // Return the result.
-        // TODO: This is a stub - needs to be replaced.
-        let mut res = TestResult::new(self.setup);
-        res
+        if let Some(result) = symbolic_result {
+            let identified_contracts = load_contracts(
+                self.setup.traces.iter()
+                    .filter_map(|(kind, trace)| {
+                        if let TraceKind::Execution = kind {
+                            Some(&trace.arena)
+                        } else {
+                            None
+                        }
+                    }),
+                &self.cr.mcr.known_contracts
+            );
+            let counterexample = BaseCounterExample::from_invariant_call(
+                Address::from_str(&result.0).unwrap(), // sender
+                Address::from_str(&result.1).unwrap(), // address
+                &Bytes(result.2.into()), // calldata
+                &identified_contracts,
+                None,
+                true,
+            );
+
+            self.result.counterexample = Some(CounterExample::Single(counterexample));
+            return self.result.clone();
+        } else {
+            self.result.single_result(true, Some("No counterexample found".to_string()), RawCallResult::default());
+            return self.result.clone();
+        }
     }
 
     /// Prepares single unit test and fuzz test execution:
@@ -619,8 +662,7 @@ impl<'a> CustomFunctionRunner<'a> {
         let address = self.setup.address;
 
         // Apply before test configured functions (if any).
-        if self.cr.contract.abi.functions().filter(|func| func.name.is_before_test_setup()).count() ==
-            1
+        if self.cr.contract.abi.functions().filter(|func| func.name.is_before_test_setup()).count() == 1
         {
             for calldata in self.executor.call_sol_default(
                 address,
@@ -661,7 +703,7 @@ fn is_matching_test(func: &Function, filter: &dyn TestFilter) -> bool {
 }
 
 fn is_symbolic_test(func: &Function) -> bool {
-    func.is_any_test() && func.name.starts_with("prove")
+    func.is_any_test() && func.name.contains("prove")
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
