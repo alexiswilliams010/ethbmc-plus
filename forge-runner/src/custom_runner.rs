@@ -44,6 +44,7 @@ use eyre::Result;
 use rayon::prelude::*;
 use tracing::{Span, debug, debug_span, enabled};
 
+pub const CALLER: Address = address!("0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38");
 pub const LIBRARY_DEPLOYER: Address = address!("0x1F95D37F27EA0dEA9C252FC09D5A6eaA97647353");
 
 /// Arguments for symbolic execution testing
@@ -312,7 +313,6 @@ impl CustomMultiContractRunner {
 }
 
 pub struct CustomContractRunner<'a> {
-    pub inner: ContractRunner<'a>,
     /// The name of the contract.
     pub name: &'a str,
     /// The data of the contract.
@@ -351,15 +351,6 @@ impl<'a> CustomContractRunner<'a> {
         symbolic: SymbolicConfig,
     ) -> Self {
         Self {
-            inner: ContractRunner::new(
-                name,
-                contract,
-                executor.clone(),
-                None,
-                tokio_handle,
-                span.clone(),
-                mcr,
-            ),
             name,
             contract,
             executor,
@@ -369,6 +360,105 @@ impl<'a> CustomContractRunner<'a> {
             mcr,
             symbolic,
         }
+    }
+
+    /// Deploys the test contract inside the runner from the sending account, and optionally runs
+    /// the `setUp` function on the test contract.
+    pub fn setup(&mut self, call_setup: bool) -> TestSetup {
+        self._setup(call_setup).unwrap_or_else(|err| {
+            if err.to_string().contains("skipped") {
+                TestSetup::skipped(err.to_string())
+            } else {
+                TestSetup::failed(err.to_string())
+            }
+        })
+    }
+
+    fn _setup(&mut self, call_setup: bool) -> Result<TestSetup> {
+        debug!(call_setup, "setting up");
+
+        self.apply_contract_inline_config()?;
+
+        // We max out their balance so that they can deploy and make calls.
+        self.executor.set_balance(self.sender, U256::MAX)?;
+        self.executor.set_balance(CALLER, U256::MAX)?;
+
+        // We set the nonce of the deployer accounts to 1 to get the same addresses as DappTools.
+        self.executor.set_nonce(self.sender, 1)?;
+
+        // Deploy libraries.
+        self.executor.set_balance(LIBRARY_DEPLOYER, U256::MAX)?;
+
+        let mut result = TestSetup::default();
+        for code in &self.mcr.libs_to_deploy {
+            let deploy_result = self.executor.deploy(
+                LIBRARY_DEPLOYER,
+                code.clone(),
+                U256::ZERO,
+                Some(&self.mcr.revert_decoder),
+            );
+
+            // Record deployed library address.
+            if let Ok(deployed) = &deploy_result {
+                result.deployed_libs.push(deployed.address);
+            }
+
+            let (raw, reason) = RawCallResult::from_evm_result(deploy_result.map(Into::into))?;
+            result.extend(raw, TraceKind::Deployment);
+            if reason.is_some() {
+                result.reason = reason;
+                return Ok(result);
+            }
+        }
+
+        let address = self.sender.create(self.executor.get_nonce(self.sender)?);
+        result.address = address;
+
+        // Set the contracts initial balance before deployment, so it is available during
+        // construction
+        self.executor.set_balance(address, self.initial_balance())?;
+
+        // Deploy the test contract
+        let deploy_result = self.executor.deploy(
+            self.sender,
+            self.contract.bytecode.clone(),
+            U256::ZERO,
+            Some(&self.mcr.revert_decoder),
+        );
+
+        result.deployment_failure = deploy_result.is_err();
+
+        if let Ok(dr) = &deploy_result {
+            debug_assert_eq!(dr.address, address);
+        }
+        let (raw, reason) = RawCallResult::from_evm_result(deploy_result.map(Into::into))?;
+        result.extend(raw, TraceKind::Deployment);
+        if reason.is_some() {
+            result.reason = reason;
+            return Ok(result);
+        }
+
+        // Reset `self.sender`s, `CALLER`s and `LIBRARY_DEPLOYER`'s balance to the initial balance.
+        self.executor.set_balance(self.sender, self.initial_balance())?;
+        self.executor.set_balance(CALLER, self.initial_balance())?;
+        self.executor.set_balance(LIBRARY_DEPLOYER, self.initial_balance())?;
+
+        self.executor.deploy_create2_deployer()?;
+
+        // Optionally call the `setUp` function
+        if call_setup {
+            debug!("calling setUp");
+            let res = self.executor.setup(None, address, Some(&self.mcr.revert_decoder));
+            let (raw, reason) = RawCallResult::from_evm_result(res)?;
+            result.extend(raw, TraceKind::Setup);
+            result.reason = reason;
+        }
+
+        Ok(result)
+    }
+
+    fn initial_balance(&self) -> U256 {
+        self.evm_opts.initial_balance
     }
 
     /// Configures this runner with the inline configuration for the contract.
@@ -427,7 +517,7 @@ impl<'a> CustomContractRunner<'a> {
         }
 
         let setup_time = Instant::now();
-        let setup = self.inner.setup(call_setup);
+        let setup = self.setup(call_setup);
         debug!("finished setting up in {:?}", setup_time.elapsed());
 
         self.executor.inspector_mut().tracer = prev_tracer;
@@ -601,12 +691,10 @@ impl<'a> CustomFunctionRunner<'a> {
         let mut setup_accounts: HashMap<Address, Account, RandomState> = HashMap::with_hasher(RandomState::new());
         let db = self.executor.backend().mem_db();
         for (address, account) in db.cache.accounts.iter() {
-            println!("bytecode: {:?}", account.info.code.as_ref().unwrap().bytes());
             let new_account: Account = Account::default()
                 .with_info(account.info.clone())
                 .with_storage(account.storage.iter().map(|(k, v)| (k.clone(), EvmStorageSlot::new(v.clone()))));
 
-            println!("address: {}", address);
             setup_accounts.insert(address.clone(), new_account);
         }
 

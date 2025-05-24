@@ -231,7 +231,7 @@ impl SeEnviroment {
 
         for (addr, acc) in storage_info {
             let account_addr = const_vec(addr.as_slice());
-            let account_balance = const_usize(acc.info.balance.to_string().parse::<usize>().unwrap());
+            let account_balance = const256(&acc.info.balance.to_string());
 
             let name = if account_addr == victim_addr {
                 "victim"
@@ -251,9 +251,9 @@ impl SeEnviroment {
 
             let mut initial_storage = Vec::new();
             let account = env.get_account_mut(&id);
-            for (slot, val) in acc.storage {
-                let addr = const_vec(slot.to_string().as_bytes());
-                let val = const_vec(val.present_value().to_string().as_bytes());
+            for (slot, value) in acc.storage {
+                let addr = const256(&slot.to_string());
+                let val = const256(&value.present_value().to_string());
 
                 initial_storage.push((
                     BitVec::as_revm_u256(&addr).unwrap(),
