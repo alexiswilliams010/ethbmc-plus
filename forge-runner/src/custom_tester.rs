@@ -1,4 +1,4 @@
-use crate::custom_runner::{CustomMultiContractBuilder, CustomMultiContractRunner};
+use crate::custom_runner::{CustomMultiContractBuilder, CustomMultiContractRunner, SymbolicConfig};
 
 use forge::{
     cmd::{
@@ -34,23 +34,25 @@ use foundry_evm::{
     traces::identifier::TraceIdentifiers,
 };
 
+use clap::Parser;
+use eyre::Result;
 use std::{
     sync::Arc,
     time::Instant,
     sync::{mpsc::channel},
 };
-use eyre::Result;
 use tracing::debug;
-use clap::Parser;
 
 /// CLI arguments for custom test runner
 #[derive(Clone, Debug, Parser)]
 #[command(next_help_heading = "Symbolic Execution Testing Options")]
 pub struct CustomTestArgs {
+    // Original Foundry test args
     #[command(flatten)]
     pub test: TestArgs,
 
-    // TODO: add custom options for propagating symbolic execution args
+    #[command(flatten)]
+    pub symbolic: SymbolicConfig,
 }
 
 impl CustomTestArgs {

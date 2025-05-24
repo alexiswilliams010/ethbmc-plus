@@ -32,7 +32,6 @@ parking_lot = { workspace = true }
 revm = { workspace = true }
 
 evmexec = { path = "../evmexec", features = ["verbose"] }
-forge-runner = { path = "../forge-runner" }
 
 [dependencies.uint]
 version = "0.4"

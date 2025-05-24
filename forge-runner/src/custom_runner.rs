@@ -1,5 +1,8 @@
+use esvm;
+
 use forge::{
     multi_runner::{TestContract, TestRunnerConfig},
+    decode::SkipReason,
     result::{SuiteResult, TestResult, TestSetup},
     TestFilter,
     ContractRunner, MultiContractRunner,
@@ -27,8 +30,9 @@ use foundry_evm::{
     Env,
 };
 use foundry_linking::{LinkOutput, Linker};
-use revm::primitives::{Address, U256, hardfork::SpecId, address};
+use revm::primitives::{Address, U256, hardfork::SpecId, address, Bytes};
 use alloy_json_abi::Function;
+use serde::{Serialize, Deserialize};
 use std::{
     borrow::{Cow, Borrow},
     collections::BTreeMap,
@@ -41,6 +45,42 @@ use rayon::prelude::*;
 use tracing::{Span, debug, debug_span, enabled};
 
 pub const LIBRARY_DEPLOYER: Address = address!("0x1F95D37F27EA0dEA9C252FC09D5A6eaA97647353");
+
+/// Arguments for symbolic execution testing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::Args)]
+pub struct SymbolicConfig {
+    /// The flag indicating whether to assume that default storage values are symbolic
+    #[arg(long)]
+    pub symbolic_storage: bool,
+    /// The flag indicating whether to perform concrete counterexample validation
+    #[arg(long)]
+    pub concrete_validation: bool,
+    /// The SMT solver to be used during symbolic analysis {0: z3, 1: boolector, 2: yices2}
+    #[arg(long, default_value = "0")]
+    pub solver: u8,
+    /// The timeout (ms) for the solver
+    #[arg(long, default_value = "100000")]
+    pub solver_timeout: u32,
+    /// The number of loops to be unrolled in a single execution
+    #[arg(long, default_value = "5")]
+    pub loop_bound: u32,
+    /// The number of calls symbolically analyzed in a sequence
+    #[arg(long, default_value = "1")]
+    pub call_bound: u32,
+}
+
+impl Default for SymbolicConfig {
+    fn default() -> Self {
+        SymbolicConfig {
+            symbolic_storage: false,
+            concrete_validation: true,
+            solver: 0, // z3
+            solver_timeout: 100_000,
+            loop_bound: 5,
+            call_bound: 1, // symbolically executing tests
+        }
+    }
+}
 
 pub struct CustomMultiContractBuilder {
     // Options taken from MultiContractRunnerBuilder
@@ -58,6 +98,8 @@ pub struct CustomMultiContractBuilder {
     pub decode_internal: InternalTraceMode,
     /// Whether to enable call isolation
     pub isolation: bool,
+    /// The additional symbolic configurations
+    pub symbolic: SymbolicConfig,
 }
 
 impl CustomMultiContractBuilder {
@@ -70,6 +112,7 @@ impl CustomMultiContractBuilder {
             config,
             decode_internal: Default::default(),
             isolation: Default::default(),
+            symbolic: Default::default(),
         }
     }
 
@@ -100,6 +143,11 @@ impl CustomMultiContractBuilder {
 
     pub fn enable_isolation(mut self, enable: bool) -> Self {
         self.isolation = enable;
+        self
+    }
+
+    pub fn with_symbolic_config(mut self, config: SymbolicConfig) -> Self {
+        self.symbolic = config;
         self
     }
 
@@ -158,6 +206,7 @@ impl CustomMultiContractBuilder {
         let known_contracts = ContractsByArtifact::new(linked_contracts);
 
         Ok(CustomMultiContractRunner {
+            symbolic: self.symbolic,
             inner: MultiContractRunner {
                 contracts: deployable_contracts,
                 revert_decoder,
@@ -189,7 +238,10 @@ impl CustomMultiContractBuilder {
 }
 
 pub struct CustomMultiContractRunner {
+    /// The inner multi-contract runner.
     pub inner: MultiContractRunner,
+    /// The symbolic configuration.
+    pub symbolic: SymbolicConfig,
 }
 
 impl CustomMultiContractRunner {
@@ -249,6 +301,7 @@ impl CustomMultiContractRunner {
             tokio_handle,
             span,
             &self.inner,
+            self.symbolic,
         );
         let r = runner.run_tests(filter);
 
@@ -274,6 +327,8 @@ pub struct CustomContractRunner<'a> {
     pub tcfg: Cow<'a, TestRunnerConfig>,
     /// The parent runner.
     pub mcr: &'a MultiContractRunner,
+    /// The symbolic configuration.
+    pub symbolic: SymbolicConfig,
 }
 
 impl<'a> std::ops::Deref for CustomContractRunner<'a> {
@@ -293,6 +348,7 @@ impl<'a> CustomContractRunner<'a> {
         tokio_handle: &'a tokio::runtime::Handle,
         span: Span,
         mcr: &'a MultiContractRunner,
+        symbolic: SymbolicConfig,
     ) -> Self {
         Self {
             inner: ContractRunner::new(
@@ -311,6 +367,7 @@ impl<'a> CustomContractRunner<'a> {
             span,
             tcfg: Cow::Borrowed(&mcr.tcfg),
             mcr,
+            symbolic,
         }
     }
 
@@ -523,7 +580,12 @@ impl<'a> CustomFunctionRunner<'a> {
             return self.result;
         }
 
-        self.run_symbolic_exec_test(func)
+        if is_symbolic_test(func) {
+            self.run_symbolic_exec_test(func)
+        } else {
+            self.result.single_skip(SkipReason(Some("No symbolic execution test found".to_string())));
+            return self.result;
+        }
     }
 
     fn run_symbolic_exec_test(
@@ -596,4 +658,14 @@ impl<'a> CustomFunctionRunner<'a> {
 
 fn is_matching_test(func: &Function, filter: &dyn TestFilter) -> bool {
     func.is_any_test() && filter.matches_test(&func.signature())
+}
+
+fn is_symbolic_test(func: &Function) -> bool {
+    func.is_any_test() && func.name.starts_with("prove")
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SymbolicCase {
+    /// The calldata to be executed
+    pub calldata: Bytes,
 }
