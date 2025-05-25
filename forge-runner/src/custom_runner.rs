@@ -5,7 +5,7 @@ use forge::{
     decode::SkipReason,
     result::{SuiteResult, TestResult, TestSetup},
     TestFilter,
-    ContractRunner, MultiContractRunner,
+    MultiContractRunner,
     multi_runner::DeployableContracts,
 };
 use foundry_compilers::{
@@ -710,20 +710,12 @@ impl<'a> CustomFunctionRunner<'a> {
         // Return the result.
         if let Some(result) = symbolic_result {
             let identified_contracts = load_contracts(
-                self.setup.traces.iter()
-                    .filter_map(|(kind, trace)| {
-                        if let TraceKind::Execution = kind {
-                            Some(&trace.arena)
-                        } else {
-                            None
-                        }
-                    }),
-                &self.cr.mcr.known_contracts
+                self.setup.traces.iter().map(|(_, t)| &t.arena), &self.cr.mcr.known_contracts
             );
             let counterexample = BaseCounterExample::from_invariant_call(
                 Address::from_str(&result.0).unwrap(), // sender
                 Address::from_str(&result.1).unwrap(), // address
-                &Bytes(result.2.into()), // calldata
+                &Bytes::from_str(&result.2).unwrap(), // calldata
                 &identified_contracts,
                 None,
                 true,

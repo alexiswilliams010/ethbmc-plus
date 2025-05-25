@@ -1,3 +1,4 @@
+use log::info;
 use revm::{
     bytecode::Bytecode, database::{CacheDB, EmptyDB},
     inspector::inspectors::TracerEip3155,
@@ -112,7 +113,7 @@ impl Evm {
 
         // Execute the transaction and commit the changes back to the CacheDB
         let result = evm.inspect_replay_commit().unwrap();
-        println!("result: {:?}", result);
+        info!("result: {:?}", result);
         let trace = writer.get_buffer();
 
         // Parse the trace into a Vec<InstructionContext>

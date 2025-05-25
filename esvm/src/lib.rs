@@ -70,7 +70,7 @@ pub fn convert_fval_to_address(fval: &Arc<FVal>) -> Address {
     Address::from_slice(&BitVec::as_revm_u256(fval).unwrap().to_be_bytes::<32>()[12..32])
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AnalysisResult {
     pub address: Address,
     pub blocks: Vec<usize>,
@@ -100,7 +100,7 @@ pub struct TimeoutAnalysis {
 }
 
 // TODO: Eventually this will be replaced with the SymbolicConfig struct but the different versions of clap are causing issues
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ForgeConfig {
     /// The flag indicating whether to assume that default storage values are symbolic
     pub symbolic_storage: bool,
@@ -601,7 +601,7 @@ impl fmt::Display for PrecompiledContracts {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct LoadedAccount {
     pub id: usize,
     pub address: Address,

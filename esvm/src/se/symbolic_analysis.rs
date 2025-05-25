@@ -733,7 +733,7 @@ impl Analysis {
                 let mut new_state =
                     SeState::new(Arc::clone(&context), memory, &env, *victim, *initial_tx);
 
-                // Restricting the analysis to "prove_xxx" functions
+                // Restricting the analysis to "*prove*" functions
                 // Loading the calldata from memory
                 let load = mload(&new_state.memory, new_state.input_tx().data, &const256("0"));
 
@@ -744,7 +744,7 @@ impl Analysis {
                     let shiftval = const_u256(OldU256::from(224));
                     let shiftop = lshr(&load, &shiftval);
                     let prove_constraint = eql(&prove_selector, &shiftop);
-                    // The calldata's selector should be pointing to the "prove_xxx" function
+                    // The calldata's selector should be pointing to the "prove" function
                     // Adding the constraint to the state
                     new_state.push_constraint(prove_constraint);
                 }
@@ -1047,6 +1047,7 @@ impl Analysis {
     }
 }
 
+#[derive(Debug)]
 pub struct ExplorationResult {
     pub new_states: Vec<ResultState>,
     pub result: Option<Vec<Attack>>,
