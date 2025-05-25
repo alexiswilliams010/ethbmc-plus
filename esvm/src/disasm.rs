@@ -184,8 +184,10 @@ impl Disasm {
             0x44 => Instr::IDifficulty,
             0x45 => Instr::IGasLimit,
             0x46 => Instr::IChainId,
-            // 0x47 => Instr::ISelfBalance,
-            // 0x48 => Instr::IBaseFee,
+            // 0x47 => Instr::ISelfBalance, // TODO
+            // 0x48 => Instr::IBaseFee, // TODO
+            // 0x49 => BLOBHASH // TODO
+            // 0x4A => BLOBBASEFEE // TODO
             //...
             0x50 => Instr::IPop,
             0x51 => Instr::IMLoad,
@@ -199,7 +201,13 @@ impl Disasm {
             0x59 => Instr::IMSize,
             0x5a => Instr::IGas,
             0x5b => Instr::IJumpDest,
-            //...
+            // 0x5C => TLOAD // TODO
+            // 0x5D => TSTORE // TODO
+            // 0x5E => MEMCOPY // TODO
+            0x5f => {
+                // Only cares about how many bytes to read from the bytecode, which is 0 and not the actual value 0
+                Instr::IPush(vec![0; 0])
+            },
             0x60 | 0x61 | 0x62 | 0x63 | 0x64 | 0x65 | 0x66 | 0x67 | 0x68 | 0x69 | 0x6a | 0x6b
             | 0x6c | 0x6d | 0x6e | 0x6f => {
                 Instr::IPush(Disasm::read_bytes(c, 1 + (byte & 0x0f) as usize)?)
@@ -253,9 +261,9 @@ impl Disasm {
             0xf2 => Instr::ICallCode,
             0xf3 => Instr::IReturn,
             0xf4 => Instr::IDelegateCall,
-            0xfb => Instr::ICreate2,
-            0xfd => Instr::IRevert,
+            0xf5 => Instr::ICreate2,
             0xfa => Instr::IStaticCall,
+            0xfd => Instr::IRevert,
             0xff => Instr::ISelfDestruct,
             0xfe | _ => Instr::IInvalid,
         };
