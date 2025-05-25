@@ -1,3 +1,4 @@
+use log::info;
 use revm::{
     bytecode::Bytecode, database::{CacheDB, EmptyDB},
     inspector::inspectors::TracerEip3155,
@@ -15,6 +16,14 @@ use crate::Error;
 use std::io::{Write, BufRead};
 use std::cell::RefCell;
 use std::rc::Rc;
+
+// For providing counterexamples in Foundry
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct ForgeInput {
+    pub input_data: String,
+    pub sender: String,
+    pub receiver: String,
+}
 
 #[derive(Debug, Clone)]
 struct FlushWriter {
@@ -78,7 +87,7 @@ impl Evm {
         }
     }
 
-        pub fn execute(&mut self, input: EvmInput) -> Result<EvmResult, Error> {
+    pub fn execute(&mut self, input: EvmInput) -> Result<EvmResult, Error> {
         // Peek into the nonce of the sender from the loaded CacheDB so it can be added to the tx
         let nonce = self.db.load_account(input.sender).map_or(0, |acc| acc.info.nonce);
 
@@ -104,7 +113,7 @@ impl Evm {
 
         // Execute the transaction and commit the changes back to the CacheDB
         let result = evm.inspect_replay_commit().unwrap();
-        println!("result: {:?}", result);
+        info!("result: {:?}", result);
         let trace = writer.get_buffer();
 
         // Parse the trace into a Vec<InstructionContext>

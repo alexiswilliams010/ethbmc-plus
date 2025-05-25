@@ -9,10 +9,12 @@ use revm::primitives::{Address, Bytes, U256};
 use evmexec::{
     evmtrace::Instruction,
     genesis::Genesis,
-    evm::{Evm, EvmInput},
+    evm::{Evm, EvmInput, ForgeInput},
 };
 use num_cpus;
 use rayon::prelude::*;
+
+use uint::U256 as OldU256;
 
 use crate::bytecode::Instr;
 use crate::disasm::Disasm;
@@ -213,7 +215,7 @@ pub enum AnalysisMode {
 }
 
 impl AnalysisMode {
-    fn is_exeution(&self) -> bool {
+    fn is_execution(&self) -> bool {
         if let AnalysisMode::Execution = self {
             true
         } else {
@@ -334,7 +336,7 @@ impl Analysis {
     }
 
     pub fn symbolic_round(&mut self) {
-        assert!(self.mode.is_exeution());
+        assert!(self.mode.is_execution());
         self.graph.analyze_graph();
 
         self.end_states = Some(self.graph.end_states());
@@ -464,6 +466,10 @@ impl Analysis {
                             .verify_tx_assert(&potential_attack_state, &data)
                             .is_some()
                         {
+                            let mut attack_counterexample: Vec<ForgeInput> = vec![];
+                            let sender: Address = convert_fval_to_address(&potential_attack_state.env.get_account(&self.from).addr);
+                            let receiver: Address = convert_fval_to_address(&potential_attack_state.env.get_account(&self.to).addr);
+
                             if potential_attack_state.config().symbolic_storage {
                                 println!("\nConcretized storage:");
                                 for upd in data[0].storage_upd.iter() {
@@ -474,11 +480,33 @@ impl Analysis {
                                 }
                             }
 
+                            for TxData {
+                                balance: _,
+                                number: _,
+                                timestamp: _,
+                                input_data,
+                                storage_upd: _,
+                            } in data.iter()
+                            {
+                                let input = ForgeInput {
+                                    input_data: convert_data_to_bytes(input_data.clone()).to_string(),
+                                    sender: sender.to_string(),
+                                    receiver: receiver.to_string(),
+                                };
+                                attack_counterexample.push(input);
+                            }
+
                             let attack = Attack {
                                 txs: data,
                                 attack_type: AttackType::AssertFailed,
+                                counterexamples: Some(attack_counterexample),
                             };
                             result.lock().unwrap().push(attack);
+
+                            // TODO: return one counterexample in forge analysis
+                            if potential_attack_state.env.get_selector().is_some() {
+                                return;
+                            }
                         }
                     } else {
                         println!(
@@ -488,7 +516,73 @@ impl Analysis {
                     }
                 }
             }
-            _ => {}
+            _ => {
+                // TODO: identify DSTest/forge-test assert failures
+                if potential_attack_state.env.func_selector.is_some() {
+                    let mut check = potential_attack_state.clone();
+                    // Identifies failed `assertEq`, `assertTrue`, etc.
+                    let failed_val = byte_at(
+                        &sload(&check.memory, check.account().storage, &const_usize(0)),
+                        &one(),
+                    );
+
+                    check.push_constraint(eql(&failed_val, &one()));
+                    if check.check_sat() {
+                        info!("Foundry's assert might be violated!");
+
+                        if let Some(data) = self.generate_tx_datas(&potential_attack_state) {
+                            if self
+                                .verify_tx_forge_test(&potential_attack_state, &data)
+                                .is_some()
+                            {
+                                // TODO: refactor the code duplication
+                                let mut attack_counterexample: Vec<ForgeInput> = vec![];
+
+                                let sender: Address = convert_fval_to_address(&potential_attack_state.env.get_account(&self.from).addr);
+                                let receiver: Address = convert_fval_to_address(&potential_attack_state.env.get_account(&self.to).addr);
+
+                                if potential_attack_state.config().symbolic_storage {
+                                    println!("\nConcretized storage:");
+                                    for upd in data[0].storage_upd.iter() {
+                                        println!(
+                                            "Account: {:#x} \n {:#x}: {:#x}",
+                                            upd.account, upd.addr, upd.value
+                                        );
+                                    }
+                                }
+
+                                for TxData {
+                                    balance: _,
+                                    number: _,
+                                    timestamp: _,
+                                    input_data,
+                                    storage_upd: _,
+                                } in data.iter()
+                                {
+                                    let input = ForgeInput {
+                                        input_data: convert_data_to_bytes(input_data.clone()).to_string(),
+                                        sender: sender.to_string(),
+                                        receiver: receiver.to_string(),
+                                    };
+                                    attack_counterexample.push(input);
+                                }
+
+                                let attack = Attack {
+                                    txs: data,
+                                    attack_type: AttackType::AssertFailed,
+                                    counterexamples: Some(attack_counterexample),
+                                };
+                                result.lock().unwrap().push(attack);
+                            } else {
+                                println!(
+                                    "Found attack, {}, but could not generate tx data!",
+                                    AttackType::AssertFailed
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         };
 
         // Otherwise check for the hardcoded attack states EthBMC was originally designed for
@@ -517,6 +611,7 @@ impl Analysis {
                             let attack = Attack {
                                 txs: data,
                                 attack_type: AttackType::CanChangeOwner,
+                                counterexamples: None,
                             };
                             result.lock().unwrap().push(attack);
                         }
@@ -541,6 +636,7 @@ impl Analysis {
                     let attack = Attack {
                         txs: data,
                         attack_type: AttackType::DeleteContract,
+                        counterexamples: None,
                     };
                     result.lock().unwrap().push(attack);
                 }
@@ -566,6 +662,7 @@ impl Analysis {
                     let attack = Attack {
                         txs: data,
                         attack_type: AttackType::HijackControlFlow,
+                        counterexamples: None,
                     };
                     result.lock().unwrap().push(attack);
                 }
@@ -600,6 +697,7 @@ impl Analysis {
                     let attack = Attack {
                         txs: data,
                         attack_type: AttackType::StealMoney,
+                        counterexamples: None,
                     };
                     result.lock().unwrap().push(attack);
                 } else {
@@ -631,7 +729,27 @@ impl Analysis {
                 *victim,
                 *initial_tx,
             ),
-            None => SeState::new(Arc::clone(&context), memory, &env, *victim, *initial_tx),
+            None => {
+                let mut new_state =
+                    SeState::new(Arc::clone(&context), memory, &env, *victim, *initial_tx);
+
+                // Restricting the analysis to "*prove*" functions
+                // Loading the calldata from memory
+                let load = mload(&new_state.memory, new_state.input_tx().data, &const256("0"));
+
+                if let Some(selector) = env.get_selector() {
+                    let prove_selector =
+                        const_vec(&hexdecode::decode(selector.as_bytes()).unwrap());
+                    // Selecting the first 4 bytes from the calldata
+                    let shiftval = const_u256(OldU256::from(224));
+                    let shiftop = lshr(&load, &shiftval);
+                    let prove_constraint = eql(&prove_selector, &shiftop);
+                    // The calldata's selector should be pointing to the "prove" function
+                    // Adding the constraint to the state
+                    new_state.push_constraint(prove_constraint);
+                }
+                new_state
+            },
         };
         SymbolicGraph::new(state)
     }
@@ -787,10 +905,33 @@ impl Analysis {
                     }
                 }
                 Instruction::Invalid {} => return Some(()),
+                Instruction::SStore { addr, value } => {
+                    if addr == U256::from(0) && value == U256::from(256) {
+                        return Some(());
+                    }
+                }
                 _ => (),
             }
         }
         None
+    }
+
+    fn verify_tx_forge_test(&self, state: &SeState, attack_data: &[TxData]) -> Option<()> {
+        if state.context.config().no_verify {
+            return Some(());
+        }
+
+        let test_contract: Address = convert_fval_to_address(&state.env.get_account(&self.to).addr);
+
+        let evm = self.execute_concrete_evm(state, attack_data)?;
+
+        // `_failed` variable in forge-std tests is at slot 0, offset 1
+        if evm.genesis.alloc[&test_contract].storage.get(&U256::from(0)).unwrap().byte(1) == 1
+        {
+            return Some(());
+        } else {
+            None
+        }
     }
 
     fn concrete_input_data_for_tx(&self, s: &SeState, tx: &TxId) -> Option<TxData> {
@@ -811,7 +952,7 @@ impl Analysis {
 
         let mut storage_updates: Vec<StorageUpdate> = Vec::new();
 
-        // TODO(baolean): concretizing symbolic storage for counterexample validation
+        // TODO: concretizing symbolic storage for counterexample validation
         if s.config().symbolic_storage {
             for read in load_state.reads.iter() {
                 if load_state.memory[*read.0].memory_type == MemoryType::Storage {
@@ -833,7 +974,7 @@ impl Analysis {
                                         extract_mapping_key(&load_state.memory, &addr);
 
                                     // Get the index of the entry we're writing to
-                                    // TODO(baolean): get only the necessary (40) bytes according to `len`
+                                    // TODO: get only the necessary (40) bytes according to `len`
                                     let index = load_state.get_value(&mload(
                                         &load_state.memory,
                                         *mem,
@@ -906,6 +1047,7 @@ impl Analysis {
     }
 }
 
+#[derive(Debug)]
 pub struct ExplorationResult {
     pub new_states: Vec<ResultState>,
     pub result: Option<Vec<Attack>>,
@@ -932,6 +1074,7 @@ impl ExplorationResult {
 pub struct Attack {
     pub txs: Vec<TxData>,
     pub attack_type: AttackType,
+    pub counterexamples: Option<Vec<ForgeInput>>,
 }
 
 impl fmt::Display for Attack {
