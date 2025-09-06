@@ -1,6 +1,7 @@
 use log::info;
 use revm::{
     bytecode::Bytecode, database::{CacheDB, EmptyDB},
+    context::tx::TxEnvBuilder,
     inspector::inspectors::TracerEip3155,
     primitives::{Address, Bytes, TxKind, U256, HashMap},
     state::{Account, AccountInfo},
@@ -94,17 +95,20 @@ impl Evm {
         // Create a new writer to capture the trace of the execution
         let mut writer = FlushWriter::new();
 
-        // Setup the EVM from the stored CacheDB and modify the transaction to include the input data
+        // Create transaction environment using TxEnvBuilder
+        let tx_env = TxEnvBuilder::new()
+            .caller(input.sender)
+            .kind(TxKind::Call(input.receiver))
+            .data(input.input_data.clone())
+            .value(input.value)
+            .gas_limit(input.gas as u64)
+            .nonce(nonce)
+            .build()
+            .unwrap();
+
+        // Setup the EVM from the stored CacheDB
         let mut evm = Context::mainnet()
             .with_db(&mut self.db)
-            .modify_tx_chained(|tx| {
-                tx.caller = input.sender;
-                tx.kind = TxKind::Call(input.receiver);
-                tx.data = input.input_data.clone();
-                tx.value = input.value;
-                tx.gas_limit = input.gas as u64;
-                tx.nonce = nonce;
-            })
             .build_mainnet()
             // Set an inspector to capture the trace of the execution
             .with_inspector(TracerEip3155::new(Box::new(writer.clone()))
@@ -112,7 +116,7 @@ impl Evm {
             .with_memory());
 
         // Execute the transaction and commit the changes back to the CacheDB
-        let result = evm.inspect_replay_commit().unwrap();
+        let result = evm.inspect_tx_commit(tx_env).unwrap();
         info!("result: {:?}", result);
         let trace = writer.get_buffer();
 
