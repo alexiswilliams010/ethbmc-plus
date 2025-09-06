@@ -1,7 +1,6 @@
 /target/
 /evmexec/target/
 **/*.rs.bk
-Cargo.lock
 
 # Outputfiles
 *.dot
