@@ -114,7 +114,7 @@ impl Evm {
             .with_inspector(TracerEip3155::new(Box::new(writer.clone()))
             .without_summary()
             .with_memory());
-        
+
         // Execute the transaction and commit the changes back to the CacheDB
         let result = evm.inspect_tx_commit(tx_env).unwrap();
         info!("result: {:?}", result);
