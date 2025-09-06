@@ -7,6 +7,7 @@ use forge::{
     TestFilter,
     MultiContractRunner,
     multi_runner::DeployableContracts,
+    revm::primitives::hardfork::SpecId,
 };
 use foundry_compilers::{
     artifacts::Contract,
@@ -33,7 +34,7 @@ use foundry_evm::{
 use foundry_linking::{LinkOutput, Linker};
 use revm::{
     state::{Account, EvmStorageSlot},
-    primitives::{Address, U256, hardfork::SpecId, address, Bytes, HashMap, hash_map::RandomState},
+    primitives::{Address, U256, address, Bytes, HashMap, hash_map::RandomState},
 };
 use alloy_json_abi::Function;
 use serde::{Serialize, Deserialize};
@@ -227,7 +228,7 @@ impl CustomMultiContractBuilder {
                     inline_config: Arc::new(InlineConfig::new_parsed(output, &self.config)?),
                     isolation: self.isolation,
 
-                    coverage: Default::default(),
+                    line_coverage: Default::default(),
                     debug: Default::default(),
                     odyssey: Default::default(),
 
@@ -693,7 +694,7 @@ impl<'a> CustomFunctionRunner<'a> {
         for (address, account) in db.cache.accounts.iter() {
             let new_account: Account = Account::default()
                 .with_info(account.info.clone())
-                .with_storage(account.storage.iter().map(|(k, v)| (k.clone(), EvmStorageSlot::new(v.clone()))));
+                .with_storage(account.storage.iter().map(|(k, v)| (k.clone(), EvmStorageSlot::new(v.clone(), 0))));
 
             setup_accounts.insert(address.clone(), new_account);
         }

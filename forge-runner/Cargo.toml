@@ -25,16 +25,17 @@ regex = { workspace = true }
 revm = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0.140"
+solar-config = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # The foundry-based dependencies are not published crates
-forge = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
-foundry-cli = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
-foundry-common = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
-foundry-config = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
-foundry-evm = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
-foundry-linking = { git = "https://github.com/foundry-rs/foundry", rev = "377d6bc31a416ce980ef0dc05631baf0b5b563fe" }
+forge = { git = "https://github.com/foundry-rs/foundry", tag = "v1.3.0" }
+foundry-cli = { git = "https://github.com/foundry-rs/foundry", tag = "v1.3.0" }
+foundry-common = { git = "https://github.com/foundry-rs/foundry", tag = "v1.3.0" }
+foundry-config = { git = "https://github.com/foundry-rs/foundry", tag = "v1.3.0" }
+foundry-evm = { git = "https://github.com/foundry-rs/foundry", tag = "v1.3.0" }
+foundry-linking = { git = "https://github.com/foundry-rs/foundry", tag = "v1.3.0" }
 
 esvm = { path = "../esvm" }

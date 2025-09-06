@@ -41,9 +41,8 @@ tracing-subscriber = "0.3.19"
 tokio = "1"
 uint = { version = "0.4", features = ["std"] }
 parking_lot = "0.7.1"
-revm = { version = "23.1.0", features = ["serde", "serde-json"] }
-foundry-compilers = { version = "0.16.1", default-features = false }
+revm = { version = "27.0.3", features = ["serde", "serde-json"] }
+foundry-compilers = { version = "0.18.0", default-features = false }
 
-[patch.crates-io]
-# patch will remain until https://github.com/bluealloy/revm/pull/2527 is merged and tagged
-revm = { git = "https://github.com/bluealloy/revm.git", rev = "b5808253" }
+# Fix the version of solar-config since something wants to up it to 0.1.6 which is not compatible
+solar-config = "=0.1.5"
