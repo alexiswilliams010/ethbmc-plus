@@ -157,7 +157,7 @@ impl SolverPool {
         };
     }
 
-    pub fn initialize_from_formel_builder(&self, builder: &SmtLib2Builder) -> SolverHandle {
+    pub fn initialize_from_formel_builder(&self, builder: &SmtLib2Builder) -> SolverHandle<'_> {
         let worker = self.retrieve_worker();
 
         let mut handle = SolverHandle {
@@ -170,7 +170,7 @@ impl SolverPool {
 
     // only available for testing
     #[cfg(test)]
-    pub fn solver_handle(&self) -> SolverHandle {
+    pub fn solver_handle(&self) -> SolverHandle<'_> {
         let worker = self.retrieve_worker();
 
         let handle = SolverHandle {

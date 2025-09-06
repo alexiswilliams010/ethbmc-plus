@@ -1,6 +1,7 @@
 use crate::bytecode::Instr;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::hash_map::Values;
 use std::io;
 use std::io::Cursor;
 use std::io::Read;
@@ -88,7 +89,7 @@ impl Disasm {
         }
     }
 
-    pub fn opcodes(&self) -> ::std::collections::hash_map::Values<usize, Instr> {
+    pub fn opcodes(&self) -> Values<'_, usize, Instr> {
         self.opcodes.values()
     }
 

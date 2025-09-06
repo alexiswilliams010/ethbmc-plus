@@ -65,7 +65,7 @@ impl Write for FlushWriter {
 
 pub struct Evm {
     pub db: CacheDB<EmptyDB>,
-    // We don't need really need to use a Genesis but will use it to update the CacheDB for now
+    // We don't really need to use a Genesis but will use it to update the CacheDB for now
     // TODO: Eventually the the symbolic analysis will be migrated to all Revm types
     pub genesis: Genesis,
 }
