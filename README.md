@@ -173,6 +173,7 @@ Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 49.09s (49.09s 
 
 - Test can only be run one at a time at the moment: `cargo test -- --test-threads=1`
 - Integration tests take a long time and should allways be run with optimizations:
+
 `cargo test integra --release -- --ignored`
 
 ## Acknowledgements
