@@ -5,7 +5,7 @@ authors = [""]
 edition = "2024"
 
 [[bin]]
-name = "forge-tester"
+name = "forge-runner"
 path = "bin/main.rs"
 
 [lib]
